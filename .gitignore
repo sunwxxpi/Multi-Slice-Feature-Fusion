@@ -1,0 +1,11 @@
+# Byte-compiled / optimized / DLL files
+__pycache__
+*.py[cod]
+
+.DS_Store
+
+data
+model
+
+predictions
+test_log
