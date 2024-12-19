@@ -90,10 +90,10 @@ if __name__ == "__main__":
             'list_dir': './data/COCA/lists_COCA',
             'num_classes': 4,
             'max_epochs': 300,
-            'batch_size': 48,
+            'batch_size': 36,
             'base_lr': 0.00001,
-            'img_size': 224,
-            'encoder': 'resnet34',
+            'img_size': 512,
+            'encoder': 'resnet50',
             'exp_setting': 'default',
             'z_spacing': 3,
         },
@@ -128,7 +128,7 @@ if __name__ == "__main__":
     print(f"Loaded best model from: {best_model_path}")
     
     snapshot_name = snapshot_path.split('/')[-1]
-    log_folder = f"./test_log/{args.arch + '_' + args.vit_name}/{dataset_name + '_' + str(args.img_size)}/{args.exp_setting}"
+    log_folder = f"./test_log/{net.__class__.__name__ + '_' + args.encoder}/{dataset_name + '_' + str(args.img_size)}/{args.exp_setting}"
     os.makedirs(log_folder, exist_ok=True)
     logging.basicConfig(filename=log_folder + '/' + snapshot_name + ".txt", level=logging.INFO,
                         format='[%(asctime)s.%(msecs)03d] %(message)s', datefmt='%H:%M:%S')
@@ -139,7 +139,7 @@ if __name__ == "__main__":
 
     if args.is_savenii:
         args.test_save_dir = './predictions'
-        test_save_path = os.path.join(args.test_save_dir, args.arch + '_' + args.vit_name, snapshot_name)
+        test_save_path = os.path.join(args.test_save_dir, net.__class__.__name__ + '_' + args.encoder, snapshot_name)
         os.makedirs(test_save_path, exist_ok=True)
     else:
         test_save_path = None

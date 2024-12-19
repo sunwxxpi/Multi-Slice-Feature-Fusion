@@ -50,10 +50,10 @@ if __name__ == "__main__":
             'list_dir': './data/COCA/lists_COCA',
             'num_classes': 4,
             'max_epochs': 300,
-            'batch_size': 48,
+            'batch_size': 36,
             'base_lr': 0.00001,
-            'img_size': 224,
-            'encoder': 'resnet34',
+            'img_size': 512,
+            'encoder': 'resnet50',
             'exp_setting': 'default',
         },
     }
@@ -73,6 +73,17 @@ if __name__ == "__main__":
             in_channels=1,                      # model input channels (1 for gray-scale images, 3 for RGB, etc.)
             classes=args.num_classes,           # model output channels (number of classes in your dataset)
             ).cuda()
+    
+    from torchinfo import summary
+    torchinfo_summary = str(summary(net, 
+                                    input_size=(args.batch_size, 1, args.img_size, args.img_size), 
+                                    col_width=20, 
+                                    depth=5, 
+                                    row_settings=["depth", "var_names"], 
+                                    col_names=["input_size", "kernel_size", "output_size", "params_percent"]))
+    output_file = "model_summary.txt"
+    with open(output_file, "w") as file:
+        file.write(torchinfo_summary)
 
     snapshot_path = f"./model/{net.__class__.__name__ + '_' + args.encoder}/{dataset_name + '_' + str(args.img_size)}/{args.exp_setting}/{'epo' + str(args.max_epochs)}"
     snapshot_path = snapshot_path + '_bs' + str(args.batch_size)
