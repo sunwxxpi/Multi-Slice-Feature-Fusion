@@ -10,11 +10,12 @@ import segmentation_models_pytorch as smp
 from glob import glob
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from datasets.dataset import COCA_dataset
+from torchvision import transforms as T
+from datasets.dataset import COCA_dataset, ToTensor
 from utils import test_single_volume
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--volume_path', type=str, default='./data/COCA/test_vol_h5', help='root dir for validation volume data')
+parser.add_argument('--volume_path', type=str, default='./data/COCA/test_npz', help='root dir for test npz data')
 parser.add_argument('--dataset', type=str, default='COCA', help='experiment_name')
 parser.add_argument('--list_dir', type=str, default='./data/COCA/lists_COCA', help='list dir')
 parser.add_argument('--num_classes', type=int, default=4, help='output channel of network')
@@ -29,10 +30,15 @@ parser.add_argument('--is_savenii', action="store_true", help='whether to save r
 args = parser.parse_args()
 
 def inference(args, model, test_save_path=None):
+    test_transform = T.Compose([
+        ToTensor()  # (H,W,3) -> (3,H,W)
+    ])
+    
     db_test = COCA_dataset(
         base_dir=args.volume_path, 
         split="test", 
         list_dir=args.list_dir,
+        transform=test_transform
     )
     testloader = DataLoader(db_test, batch_size=1, shuffle=False, num_workers=1)
     
@@ -43,7 +49,10 @@ def inference(args, model, test_save_path=None):
     
     for i_batch, sampled_batch in tqdm(enumerate(testloader, start=1)):
         image, label, case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
-        
+        # image: (1,3,H,W), label: (1,H,W)
+        image = image.cuda()
+        label = label.cuda()
+
         metric_i = test_single_volume(image, label, model, classes=args.num_classes, patch_size=[args.img_size, args.img_size],
                                       test_save_path=test_save_path, case=case_name, z_spacing=args.z_spacing)
         metric_list_all.append(metric_i)
@@ -85,15 +94,14 @@ if __name__ == "__main__":
     dataset_name = args.dataset
     dataset_config = {
         'COCA': {
-            'Dataset': COCA_dataset,
-            'volume_path': './data/COCA/test_vol_h5',
-            'list_dir': './data/COCA/lists_COCA',
+            'volume_path': './data/COCA_3frames/test_npz',
+            'list_dir': './data/COCA_3frames/lists_COCA',
             'num_classes': 4,
             'max_epochs': 300,
             'batch_size': 36,
             'base_lr': 0.00001,
             'img_size': 512,
-            'encoder': 'resnet50',
+            'encoder': 'resnet50_sa',
             'exp_setting': 'default',
             'z_spacing': 3,
         },
@@ -111,10 +119,10 @@ if __name__ == "__main__":
     args.z_spacing = dataset_config[dataset_name]['z_spacing']
     
     net = smp.Unet(
-            encoder_name=args.encoder,            # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
-            encoder_weights="imagenet",         # use `imagenet` pre-trained weights for encoder initialization
-            in_channels=1,                      # model input channels (1 for gray-scale images, 3 for RGB, etc.)
-            classes=args.num_classes,           # model output channels (number of classes in your dataset)
+            encoder_name=args.encoder,
+            encoder_weights="imagenet",
+            in_channels=1,
+            classes=args.num_classes,
             ).cuda()
     
     snapshot_path = f"./model/{net.__class__.__name__ + '_' + args.encoder}/{dataset_name + '_' + str(args.img_size)}/{args.exp_setting}/{'epo' + str(args.max_epochs)}"

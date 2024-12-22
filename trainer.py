@@ -25,6 +25,7 @@ def trainer_coca(args, model, snapshot_path):
     num_classes = args.num_classes
     batch_size = args.batch_size
     
+    # Train transform: Random augmentation, Resize, ToTensor (3-slice 기준)
     train_transform = RandomGenerator(output_size=[args.img_size, args.img_size])
     db_train = COCA_dataset(
         base_dir=args.root_path,
@@ -33,6 +34,7 @@ def trainer_coca(args, model, snapshot_path):
         transform=train_transform
     )
     
+    # Validation transform: 단순 Resize 및 ToTensor
     val_transform = T.Compose([
         Resize(output_size=[args.img_size, args.img_size]),
         ToTensor()
@@ -50,6 +52,7 @@ def trainer_coca(args, model, snapshot_path):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
+    # trainloader에서 shuffle=False지만, collate_fn=shuffle_within_batch로 batch 내 순서 랜덤화
     trainloader = DataLoader(db_train, batch_size=batch_size, shuffle=False, 
                              num_workers=8, pin_memory=True, worker_init_fn=worker_init_fn, 
                              collate_fn=shuffle_within_batch)
@@ -113,8 +116,8 @@ def trainer_coca(args, model, snapshot_path):
                 
                 writer.add_image('train/Image', image, iter_num)
                 
-                outputs = torch.argmax(torch.softmax(outputs, dim=1), dim=1, keepdim=True)
-                writer.add_image('train/Prediction', outputs[1, ...] * 50, iter_num)
+                pred = torch.argmax(torch.softmax(outputs, dim=1), dim=1, keepdim=True)
+                writer.add_image('train/Prediction', pred[1, ...] * 50, iter_num)
 
                 labels = label_batch[1, ...].unsqueeze(0) * 50
                 writer.add_image('train/GroundTruth', labels, iter_num)
@@ -129,7 +132,6 @@ def trainer_coca(args, model, snapshot_path):
         writer.add_scalar('train/train_loss', train_loss, epoch_num)
         logging.info('Train - epoch %d - train_dice_loss: %f, train_ce_loss: %f, train_loss: %f' % (epoch_num, train_dice_loss, train_ce_loss, train_loss))
 
-        # Validation step after each epoch
         val_dice_loss = 0.0
         val_ce_loss = 0.0
         val_loss = 0.0
@@ -150,7 +152,6 @@ def trainer_coca(args, model, snapshot_path):
                 val_ce_loss += ce_loss.item()
                 val_loss += loss.item()
 
-        # Epoch별 평균 validation 손실 계산 및 기록
         val_dice_loss /= len(valloader)
         val_ce_loss /= len(valloader)
         val_loss /= len(valloader)
