@@ -9,3 +9,5 @@ model
 
 predictions
 test_log
+
+*.txt
