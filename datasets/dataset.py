@@ -2,7 +2,6 @@ import os
 import random
 import numpy as np
 import torch
-import h5py
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import default_collate
 from torchvision import transforms as T

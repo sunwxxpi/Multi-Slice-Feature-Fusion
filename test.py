@@ -98,7 +98,7 @@ if __name__ == "__main__":
             'list_dir': './data/COCA_3frames/lists_COCA',
             'num_classes': 4,
             'max_epochs': 300,
-            'batch_size': 36,
+            'batch_size': 32,
             'base_lr': 0.00001,
             'img_size': 512,
             'encoder': 'resnet50_sa',
@@ -120,7 +120,7 @@ if __name__ == "__main__":
     
     net = smp.Unet(
             encoder_name=args.encoder,
-            encoder_weights="imagenet",
+            encoder_weights=None,
             in_channels=1,
             classes=args.num_classes,
             ).cuda()
