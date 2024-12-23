@@ -6,13 +6,15 @@ import logging
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
+import SimpleITK as sitk
 import segmentation_models_pytorch as smp
 from glob import glob
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
+from scipy.ndimage import zoom
 from datasets.dataset import COCA_dataset, ToTensor
-from utils import test_single_volume
+from utils import calculate_metric_percase
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--volume_path', type=str, default='./data/COCA/test_npz', help='root dir for test npz data')
@@ -29,53 +31,214 @@ parser.add_argument('--seed', type=int, default=1234, help='random seed')
 parser.add_argument('--is_savenii', action="store_true", help='whether to save results during inference')
 args = parser.parse_args()
 
+def parse_case_and_slice_id(full_name: str):
+    """
+    'case0001_slice012' -> ('case0001', 12)
+    'case0002'          -> ('case0002', 0)
+    """
+    if '_slice' in full_name:
+        case_id, slice_str = full_name.split('_slice', 1)
+        slice_id = int(slice_str)
+    else:
+        case_id = full_name
+        slice_id = 0
+    return case_id, slice_id
+
+def run_inference_on_slice(
+    image: torch.Tensor,
+    label: torch.Tensor,
+    model: torch.nn.Module,
+    patch_size=(256, 256),
+    test_save_path=None,
+    case_name=None,
+    z_spacing=1
+):
+    """
+    슬라이스 단위로 추론하는 함수.
+    (3장 슬라이스를 채널로 쌓은 2D 입력 -> 모델 예측 -> 2D 결과 반환)
+
+    Args:
+        image:  (B=1, 3, H, W) 형태의 텐서.
+        label:  (B=1, H, W) 형태의 텐서.
+        model:  추론할 모델(torch.nn.Module).
+        patch_size: (height, width) 모델에 입력할 기본 크기.
+        test_save_path: (옵션) 슬라이스별 nii.gz 저장 경로.
+        case_name: (옵션) 파일 저장 시 사용될 case 식별자.
+        z_spacing:  (옵션) 저장 시의 Z축 spacing 값.
+
+    Returns:
+        pred_slice (np.ndarray): (H, W), 슬라이스 예측 결과(0~N).
+        label_slice (np.ndarray): (H, W), 슬라이스 라벨(정답).
+    """
+    # 1) 텐서 -> numpy 변환
+    image_np = image.squeeze(0).cpu().numpy()  # (3, H, W)
+    label_np = label.squeeze(0).cpu().numpy()  # (H, W)
+
+    C, H, W = image_np.shape
+    assert C == 3, "Input image must have 3 channels (3-slices)."
+
+    # 2) 필요한 경우 patch_size로 리사이즈
+    if (H != patch_size[0]) or (W != patch_size[1]):
+        image_resized = zoom(image_np, (1, patch_size[0]/H, patch_size[1]/W), order=3)
+    else:
+        image_resized = image_np
+
+    # 3) 모델 추론
+    model.eval()
+    with torch.no_grad():
+        input_tensor = torch.from_numpy(image_resized).unsqueeze(0).float().cuda()  # (1, 3, H', W')
+        logits = model(input_tensor)   # (1, num_classes, H', W') 가정
+        pred_2d = torch.argmax(torch.softmax(logits, dim=1), dim=1).squeeze(0).cpu().numpy()
+
+    # 4) 원래 (H, W) 크기로 복원
+    if (H != patch_size[0]) or (W != patch_size[1]):
+        pred_2d = zoom(pred_2d, (H/patch_size[0], W/patch_size[1]), order=0)
+
+    prediction = pred_2d.astype(np.uint8)
+    label_slice = label_np.astype(np.uint8)
+
+    # 5) (옵션) 슬라이스 결과 저장
+    if test_save_path is not None and case_name is not None:
+        img_for_save = image_np.transpose(1, 2, 0)  # (H, W, 3)
+        pred_for_save = prediction
+        label_for_save = label_slice
+
+        img_itk = sitk.GetImageFromArray(img_for_save.astype(np.float32))
+        pred_itk = sitk.GetImageFromArray(pred_for_save.astype(np.float32))
+        label_itk = sitk.GetImageFromArray(label_for_save.astype(np.float32))
+
+        img_itk.SetSpacing((0.375, 0.375, z_spacing))
+        pred_itk.SetSpacing((0.375, 0.375, z_spacing))
+        label_itk.SetSpacing((0.375, 0.375, z_spacing))
+
+        sitk.WriteImage(pred_itk, f"{test_save_path}/{case_name}_pred.nii.gz")
+        sitk.WriteImage(img_itk,  f"{test_save_path}/{case_name}_img.nii.gz")
+        sitk.WriteImage(label_itk, f"{test_save_path}/{case_name}_gt.nii.gz")
+
+    return prediction, label_slice
+
+def accumulate_slice_prediction(pred_dict, label_dict, case_id, slice_id, pred_2d, label_2d):
+    """
+    dict에 슬라이스 단위 예측 결과/라벨을 누적.
+    pred_dict[case_id][slice_id] = pred_2d
+    label_dict[case_id][slice_id] = label_2d
+    """
+    if case_id not in pred_dict:
+        pred_dict[case_id] = {}
+        label_dict[case_id] = {}
+    pred_dict[case_id][slice_id] = pred_2d
+    label_dict[case_id][slice_id] = label_2d
+    
+def build_3d_volume(pred_slices: dict, label_slices: dict):
+    """
+    {slice_id: 2D pred, ...} -> 3D (H, W, depth) 배열로 변환
+    """
+    sorted_ids = sorted(pred_slices.keys())  # [0,1,2,...]
+    min_z, max_z = sorted_ids[0], sorted_ids[-1]
+    depth = max_z - min_z + 1
+
+    # H, W 파악
+    any_slice = sorted_ids[0]
+    H, W = pred_slices[any_slice].shape
+
+    pred_3d = np.zeros((H, W, depth), dtype=np.uint8)
+    label_3d = np.zeros((H, W, depth), dtype=np.uint8)
+
+    for z in sorted_ids:
+        pred_3d[..., z - min_z] = pred_slices[z]
+        label_3d[..., z - min_z] = label_slices[z]
+
+    return pred_3d, label_3d
+
+
 def inference(args, model, test_save_path=None):
+    # 1) DataLoader 준비
     test_transform = T.Compose([
         ToTensor()  # (H,W,3) -> (3,H,W)
     ])
     
     db_test = COCA_dataset(
-        base_dir=args.volume_path, 
-        split="test", 
+        base_dir=args.volume_path,
+        split="test",
         list_dir=args.list_dir,
         transform=test_transform
     )
     testloader = DataLoader(db_test, batch_size=1, shuffle=False, num_workers=1)
-    
+
     logging.info("{} test iterations per epoch".format(len(testloader)))
     model.eval()
-    
-    metric_list_all = []
-    
-    for i_batch, sampled_batch in tqdm(enumerate(testloader, start=1)):
-        image, label, case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
-        # image: (1,3,H,W), label: (1,H,W)
-        image = image.cuda()
-        label = label.cuda()
 
-        metric_i = test_single_volume(image, label, model, classes=args.num_classes, patch_size=[args.img_size, args.img_size],
-                                      test_save_path=test_save_path, case=case_name, z_spacing=args.z_spacing)
-        metric_list_all.append(metric_i)
+    # 2) (케이스 -> {슬라이스 -> (pred2D, label2D)}) 저장할 dict
+    pred_slices_dict = {}
+    label_slices_dict = {}
+
+    # 3) 슬라이스 단위 추론 & dict 누적
+    for i_batch, sampled_batch in tqdm(enumerate(testloader, start=1), total=len(testloader)):
+        image, label, full_case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
+        # image: (1,3,H,W), label: (1,H,W)
+
+        # case_id, slice_id 추출
+        case_id, slice_id = parse_case_and_slice_id(full_case_name)
+
+        # 슬라이스 추론
+        pred_2d, label_2d = run_inference_on_slice(
+            image, label, model,
+            patch_size=[args.img_size, args.img_size],
+            test_save_path=test_save_path,
+            case_name=full_case_name,
+            z_spacing=args.z_spacing
+        )
+
+        # 누적
+        accumulate_slice_prediction(pred_slices_dict, label_slices_dict, case_id, slice_id, pred_2d, label_2d)
+
+    # 4) 케이스 단위로 3D 볼륨 합치고, 메트릭 계산
+    metric_list_per_case = []
+    case_list = sorted(pred_slices_dict.keys())
+
+    for case_id in case_list:
+        pred_3d, label_3d = build_3d_volume(pred_slices_dict[case_id], label_slices_dict[case_id])
+        # (H, W, depth)
+
+        # 클래스별 Dice, mAP, HD
+        # classes 인자를 test_single_slice에서 제거했으므로,
+        # 여기서는 args.num_classes를 사용 (1 ~ num_classes-1)
+        metrics_this_case = []
+        for c in range(1, args.num_classes):
+            dice, m_ap, hd = calculate_metric_percase(pred_3d == c, label_3d == c)
+            metrics_this_case.append((dice, m_ap, hd))
         
-        mean_dice_case = np.nanmean(metric_i, axis=0)[0]
-        mean_m_ap_case = np.nanmean(metric_i, axis=0)[1]
-        mean_hd95_case = np.nanmean(metric_i, axis=0)[2]
-        logging.info('%s - mean_dice: %.4f, mean_m_ap: %.4f, mean_hd95: %.2f' % (case_name, mean_dice_case, mean_m_ap_case, mean_hd95_case))
-    
-    metric_array = np.array(metric_list_all)
-    
-    for i in range(1, args.num_classes):
-        class_dice = np.nanmean(metric_array[:, i-1, 0])
-        class_m_ap = np.nanmean(metric_array[:, i-1, 1])
-        class_hd95 = np.nanmean(metric_array[:, i-1, 2])
-        logging.info('Mean class %d - mean_dice: %.4f, mean_m_ap: %.4f, mean_hd95: %.2f' % (i, class_dice, class_m_ap, class_hd95))
-        
-    mean_dice = np.nanmean(metric_array[:,:,0])
-    mean_m_ap = np.nanmean(metric_array[:,:,1])
-    mean_hd95 = np.nanmean(metric_array[:,:,2])
-    
-    logging.info('Testing performance in best val model - mean_dice : %.4f, mean_m_ap : %.4f, mean_hd95 : %.2f' % (mean_dice, mean_m_ap, mean_hd95))
-    
+        metrics_this_case = np.array(metrics_this_case)  # (num_classes-1, 3)
+        metric_list_per_case.append(metrics_this_case)
+
+        # 케이스별 평균 로깅
+        mean_dice_case = np.nanmean(metrics_this_case[:, 0])
+        mean_map_case  = np.nanmean(metrics_this_case[:, 1])
+        mean_hd_case   = np.nanmean(metrics_this_case[:, 2])
+        logging.info(
+            f"{case_id} - mean_dice: {mean_dice_case:.4f}, mean_m_ap: {mean_map_case:.4f}, mean_hd95: {mean_hd_case:.2f}"
+        )
+
+    # 5) 전체 케이스 평균
+    metric_array = np.array(metric_list_per_case)  # (n_cases, num_classes-1, 3)
+
+    # 클래스별 평균
+    for c_idx in range(1, args.num_classes):
+        dice_c = np.nanmean(metric_array[:, c_idx-1, 0])
+        map_c  = np.nanmean(metric_array[:, c_idx-1, 1])
+        hd_c   = np.nanmean(metric_array[:, c_idx-1, 2])
+        logging.info(
+            f"Mean class {c_idx} - dice: {dice_c:.4f}, m_ap: {map_c:.4f}, hd95: {hd_c:.2f}"
+        )
+
+    # 전체 평균
+    mean_dice_all = np.nanmean(metric_array[:, :, 0])
+    mean_map_all  = np.nanmean(metric_array[:, :, 1])
+    mean_hd_all   = np.nanmean(metric_array[:, :, 2])
+    logging.info(
+        f"Testing performance - mean_dice: {mean_dice_all:.4f}, mean_m_ap: {mean_map_all:.4f}, mean_hd95: {mean_hd_all:.2f}"
+    )
+
     return "Testing Finished!"
 
 if __name__ == "__main__":
