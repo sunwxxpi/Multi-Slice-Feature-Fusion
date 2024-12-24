@@ -12,8 +12,7 @@ from glob import glob
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
-from scipy.ndimage import zoom
-from datasets.dataset import COCA_dataset, ToTensor
+from datasets.dataset import COCA_dataset, Resize, ToTensor
 from utils import calculate_metric_percase
 
 parser = argparse.ArgumentParser()
@@ -70,34 +69,22 @@ def run_inference_on_slice(
         pred_slice (np.ndarray): (H, W), 슬라이스 예측 결과(0~N).
         label_slice (np.ndarray): (H, W), 슬라이스 라벨(정답).
     """
-    # 1) 텐서 -> numpy 변환
     image_np = image.squeeze(0).cpu().numpy()  # (3, H, W)
     label_np = label.squeeze(0).cpu().numpy()  # (H, W)
 
     C, H, W = image_np.shape
     assert C == 3, "Input image must have 3 channels (3-slices)."
 
-    # 2) 필요한 경우 patch_size로 리사이즈
-    if (H != patch_size[0]) or (W != patch_size[1]):
-        image_resized = zoom(image_np, (1, patch_size[0]/H, patch_size[1]/W), order=3)
-    else:
-        image_resized = image_np
-
-    # 3) 모델 추론
     model.eval()
     with torch.no_grad():
-        input_tensor = torch.from_numpy(image_resized).unsqueeze(0).float().cuda()  # (1, 3, H', W')
+        input_tensor = torch.from_numpy(image_np).unsqueeze(0).float().cuda()  # (1, 3, H', W')
         logits = model(input_tensor)   # (1, num_classes, H', W') 가정
         pred_2d = torch.argmax(torch.softmax(logits, dim=1), dim=1).squeeze(0).cpu().numpy()
-
-    # 4) 원래 (H, W) 크기로 복원
-    if (H != patch_size[0]) or (W != patch_size[1]):
-        pred_2d = zoom(pred_2d, (H/patch_size[0], W/patch_size[1]), order=0)
 
     prediction = pred_2d.astype(np.uint8)
     label_slice = label_np.astype(np.uint8)
 
-    # 5) (옵션) 슬라이스 결과 저장
+    # (옵션) 슬라이스 결과 저장
     if test_save_path is not None and case_name is not None:
         img_for_save = image_np.transpose(1, 2, 0)  # (H, W, 3)
         pred_for_save = prediction
@@ -154,6 +141,7 @@ def build_3d_volume(pred_slices: dict, label_slices: dict):
 def inference(args, model, test_save_path=None):
     # 1) DataLoader 준비
     test_transform = T.Compose([
+        Resize(output_size=[args.img_size, args.img_size]),
         ToTensor()  # (H,W,3) -> (3,H,W)
     ])
     
@@ -283,7 +271,7 @@ if __name__ == "__main__":
     
     net = smp.Unet(
             encoder_name=args.encoder,
-            encoder_weights=None,
+            encoder_weights="imagenet",
             in_channels=1,
             classes=args.num_classes,
             ).cuda()

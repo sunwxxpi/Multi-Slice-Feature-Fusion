@@ -69,7 +69,7 @@ if __name__ == "__main__":
 
     net = smp.Unet(
             encoder_name=args.encoder,
-            encoder_weights=None,
+            encoder_weights="imagenet",
             in_channels=1,
             classes=args.num_classes,
             ).cuda()
