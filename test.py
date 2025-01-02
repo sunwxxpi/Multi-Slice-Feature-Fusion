@@ -162,8 +162,8 @@ def inference(args, model, test_save_path=None):
 
     # 3) 슬라이스 단위 추론 & dict 누적
     for i_batch, sampled_batch in tqdm(enumerate(testloader, start=1), total=len(testloader)):
-        image, label, full_case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
         # image: (1,3,H,W), label: (1,H,W)
+        image, label, full_case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
 
         # case_id, slice_id 추출
         case_id, slice_id = parse_case_and_slice_id(full_case_name)
@@ -185,8 +185,8 @@ def inference(args, model, test_save_path=None):
     case_list = sorted(pred_slices_dict.keys())
 
     for case_id in case_list:
-        pred_3d, label_3d = build_3d_volume(pred_slices_dict[case_id], label_slices_dict[case_id])
         # (H, W, depth)
+        pred_3d, label_3d = build_3d_volume(pred_slices_dict[case_id], label_slices_dict[case_id])
 
         # 클래스별 Dice, mAP, HD
         # classes 인자를 test_single_slice에서 제거했으므로,

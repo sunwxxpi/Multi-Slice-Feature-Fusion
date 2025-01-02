@@ -51,6 +51,7 @@ def process_file(ct_path, seg_path, save_path, list_file, split):
                 image_slices = ct_array[:, :, slice_idx:slice_idx + 3]  # (H,W,3)
                 label_slice = seg_array[:, :, slice_idx + 1]  # Center slice label
                 npz_filename = os.path.join(save_path, f'case{case_number}_slice{slice_idx:03d}.npz')
+                
                 np.savez(npz_filename, image=image_slices, label=label_slice)
                 list_f.write(f'case{case_number}_slice{slice_idx:03d}\n')
 

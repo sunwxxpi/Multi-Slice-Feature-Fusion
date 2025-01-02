@@ -1,8 +1,8 @@
 import os
 import numpy as np
 import nibabel as nib
-from tqdm import tqdm
 import h5py
+from tqdm import tqdm
 
 # Paths and configurations
 DATASET_DIR = '/home/psw/nnUNet/data/nnUNet_raw/Dataset001_COCA'
@@ -30,6 +30,10 @@ SPLITS = {
 def process_file(ct_path, seg_path, save_path, list_file, split):
     with open(list_file, 'w') as list_f:
         for ct_file in tqdm(sorted(os.listdir(ct_path)), desc=f'Processing {split}', unit='files'):
+            if not ct_file.endswith('.nii.gz'):
+                print(f"Skipping non-NIFTI file: {ct_file}")
+                continue
+            
             base_name = ct_file.replace('_0000.nii.gz', '')  # Base name extraction
             case_number = base_name.split('_')[-1].zfill(4)  # Padded case number
             image_path = os.path.join(ct_path, ct_file)
@@ -50,12 +54,14 @@ def process_file(ct_path, seg_path, save_path, list_file, split):
                     image_slice = ct_array[:, :, slice_idx]
                     label_slice = seg_array[:, :, slice_idx]
                     npz_filename = os.path.join(save_path, f'case{case_number}_slice{slice_idx:03d}.npz')
+                    
                     np.savez(npz_filename, image=image_slice, label=label_slice)
                     list_f.write(f'case{case_number}_slice{slice_idx:03d}\n')
             # Test split: save as HDF5
             elif split == 'test':
                 os.makedirs(save_path, exist_ok=True)
                 h5_filename = os.path.join(save_path, f'case{case_number}.npy.h5')
+                
                 with h5py.File(h5_filename, 'w') as hf:
                     hf.create_dataset('image', data=ct_array.transpose(2, 0, 1), compression="gzip", dtype='float32')
                     hf.create_dataset('label', data=seg_array.transpose(2, 0, 1), compression="gzip", dtype='uint8')
