@@ -24,13 +24,12 @@ class PolyLRScheduler(_LRScheduler):
             param_group['lr'] = new_lr
 
 class DiceLoss(nn.Module):
-    def __init__(self, n_classes):
+    def __init__(self):
         super(DiceLoss, self).__init__()
-        self.n_classes = n_classes
 
-    def _one_hot_encoder(self, input_tensor):
+    def _one_hot_encoder(self, input_tensor, n_classes):
         tensor_list = []
-        for i in range(self.n_classes):
+        for i in range(n_classes):
             temp_prob = input_tensor == i
             tensor_list.append(temp_prob.unsqueeze(1))
         output_tensor = torch.cat(tensor_list, dim=1)
@@ -47,23 +46,25 @@ class DiceLoss(nn.Module):
         return loss
 
     def forward(self, inputs, target, weight=None, softmax=False):
+        n_classes = inputs.size(1)
+        
         if softmax:
             inputs = torch.softmax(inputs, dim=1)
-        target = self._one_hot_encoder(target)
+        target = self._one_hot_encoder(target, n_classes)
         if weight is None:
-            weight = [1] * self.n_classes
+            weight = [1] * n_classes
         assert inputs.size() == target.size(), 'predict {} & target {} shape do not match'.format(inputs.size(), target.size())
         class_wise_dice = []
         loss = 0.0
         
         # Background(index 0) 제외, Foreground(나머지 클래스)에 대해서만 Dice Loss 계산
-        for i in range(1, self.n_classes):
+        for i in range(1, n_classes):
             dice = self._dice_loss(inputs[:, i], target[:, i])
             class_wise_dice.append(1.0 - dice.item())
             loss += dice * weight[i]
         
         # Background를 제외한 클래스 수로 나눠서 평균 계산
-        return loss / (self.n_classes - 1)
+        return loss / (n_classes - 1)
 
 def compute_dice_coefficient(mask_gt, mask_pred):
     volume_sum = mask_gt.sum() + mask_pred.sum()

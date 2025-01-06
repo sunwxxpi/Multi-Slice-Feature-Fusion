@@ -22,7 +22,6 @@ def trainer_coca(args, model, snapshot_path):
     logging.info(str(args))
     
     base_lr = args.base_lr
-    num_classes = args.num_classes
     batch_size = args.batch_size
     
     # Train transform: Random augmentation, Resize, ToTensor (3-slice 기준)
@@ -67,7 +66,7 @@ def trainer_coca(args, model, snapshot_path):
         model = nn.DataParallel(model)
     model.train()
     
-    dice_loss_class = DiceLoss(num_classes)
+    dice_loss_class = DiceLoss()
     ce_loss_class = CrossEntropyLoss()
     # optimizer = optim.SGD(model.parameters(), lr=base_lr, weight_decay=3e-5, momentum=0.99, nesterov=True)
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
