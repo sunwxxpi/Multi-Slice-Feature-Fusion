@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 from tqdm import tqdm
-from utils import PolyLRScheduler, DiceLoss
+from utils import PolyLRScheduler, DiceLoss, FocalLoss
 from datasets.dataset import shuffle_within_batch, COCA_dataset, RandomAugmentation, Resize, ToTensor
 
 def trainer_coca(args, model, snapshot_path):
@@ -68,6 +68,7 @@ def trainer_coca(args, model, snapshot_path):
     
     dice_loss_class = DiceLoss()
     ce_loss_class = CrossEntropyLoss()
+    # focal_loss_class = FocalLoss(alpha=1.0, gamma=2.0)
     # optimizer = optim.SGD(model.parameters(), lr=base_lr, weight_decay=3e-5, momentum=0.99, nesterov=True)
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
     

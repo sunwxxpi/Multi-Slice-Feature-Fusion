@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim.lr_scheduler import _LRScheduler
 from sklearn.metrics import precision_recall_curve, auc
 from scipy.spatial.distance import directed_hausdorff
@@ -65,6 +66,55 @@ class DiceLoss(nn.Module):
         
         # Background를 제외한 클래스 수로 나눠서 평균 계산
         return loss / (n_classes - 1)
+    
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=1.0, gamma=2.0, reduction='mean', ignore_index=None):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.ignore_index = ignore_index
+
+    def forward(self, inputs, targets):
+        """
+        inputs: (N, C, H, W) 형태의 로짓(logits)
+        targets: (N, H, W) 형태로, 각 픽셀이 [0, C-1] 범위를 갖는 정수 레이블
+        """
+        # log_softmax로 변환 -> log_pt
+        log_pt = F.log_softmax(inputs, dim=1)  # (N, C, H, W)
+        
+        # pt = exp(log_pt)
+        pt = torch.exp(log_pt)  # 확률 형태로 변환
+
+        # gather를 이용해 정답 클래스에 해당하는 log_pt, pt만 추출
+        # targets.unsqueeze(1)의 shape: (N, 1, H, W)
+        log_pt = log_pt.gather(dim=1, index=targets.unsqueeze(1))  # (N, 1, H, W)
+        log_pt = log_pt.view(-1)  # (N*H*W,)
+
+        pt = pt.gather(dim=1, index=targets.unsqueeze(1))          # (N, 1, H, W)
+        pt = pt.view(-1)                                           # (N*H*W,)
+
+        # ignore_index가 설정되어 있으면, 해당 인덱스 위치는 무시
+        if self.ignore_index is not None:
+            valid_mask = (targets.view(-1) != self.ignore_index)
+            log_pt = log_pt[valid_mask]
+            pt = pt[valid_mask]
+
+        # Focal term: (1 - pt)^gamma
+        focal_term = (1 - pt) ** self.gamma
+
+        # alpha 적용 (특정 클래스에 가중치가 있는 경우, 여기서 클래스별 처리 가능)
+        # 이 예시에선 alpha가 스칼라라고 가정
+        loss = -self.alpha * focal_term * log_pt  # 음수 부호에 주의: -log_pt
+
+        # reduction 방식 적용
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            # 'none'인 경우, (N*H*W,) 형태의 텐서를 그대로 반환
+            return loss
 
 def compute_dice_coefficient(mask_gt, mask_pred):
     volume_sum = mask_gt.sum() + mask_pred.sum()
