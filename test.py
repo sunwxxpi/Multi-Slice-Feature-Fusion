@@ -19,7 +19,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--volume_path', type=str, default='./data/COCA/test_npz', help='root dir for test npz data')
 parser.add_argument('--dataset', type=str, default='COCA', help='experiment_name')
 parser.add_argument('--list_dir', type=str, default='./data/COCA/lists_COCA', help='list dir')
-parser.add_argument('--num_classes', type=int, default=4, help='output channel of network')
+parser.add_argument('--num_classes', type=int, default=5, help='output channel of network')
 parser.add_argument('--max_epochs', type=int, default=1000, help='maximum epoch number to train')
 parser.add_argument('--batch_size', type=int, default=96, help='batch_size per gpu')
 parser.add_argument('--img_size', type=int, default=224, help='input patch size of network input')
@@ -189,8 +189,6 @@ def inference(args, model, test_save_path=None):
         pred_3d, label_3d = build_3d_volume(pred_slices_dict[case_id], label_slices_dict[case_id])
 
         # 클래스별 Dice, mAP, HD
-        # classes 인자를 test_single_slice에서 제거했으므로,
-        # 여기서는 args.num_classes를 사용 (1 ~ num_classes-1)
         metrics_this_case = []
         for c in range(1, args.num_classes):
             dice, m_ap, hd = calculate_metric_percase(pred_3d == c, label_3d == c)
@@ -245,9 +243,9 @@ if __name__ == "__main__":
     dataset_name = args.dataset
     dataset_config = {
         'COCA': {
-            'volume_path': './data/COCA_3frames/test_npz',
-            'list_dir': './data/COCA_3frames/lists_COCA',
-            'num_classes': 4,
+            'volume_path': '/home/psw/AVS-Diagnosis/COCA_3frames/test_npz',
+            'list_dir': '/home/psw/AVS-Diagnosis/COCA_3frames/lists_COCA',
+            'num_classes': 5,
             'max_epochs': 300,
             'batch_size': 16,
             'base_lr': 0.00001,
