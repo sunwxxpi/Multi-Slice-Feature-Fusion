@@ -35,6 +35,7 @@ from pretrainedmodels.models.torchvision_models import pretrained_settings
 from ._base import EncoderMixin
 
 from .resnet_sa import ResNetSAEncoder
+from .resnet_sa_sub import ResNetSASubEncoder
 
 
 class ResNetEncoder(ResNet, EncoderMixin):
@@ -156,6 +157,15 @@ resnet_encoders = {
     },
     "resnet50_sa": {
         "encoder": ResNetSAEncoder,
+        "pretrained_settings": pretrained_settings["resnet50"],
+        "params": {
+            "out_channels": (3, 64, 256, 512, 1024, 2048),
+            "block": Bottleneck,
+            "layers": [3, 4, 6, 3],
+        },
+    },
+    "resnet50_sa_default": {
+        "encoder": ResNetSASubEncoder,
         "pretrained_settings": pretrained_settings["resnet50"],
         "params": {
             "out_channels": (3, 64, 256, 512, 1024, 2048),
