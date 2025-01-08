@@ -34,7 +34,7 @@ def window_unpartition(x, window_size, H, W, B):
     return x
 
 class NonLocalBlock(nn.Module):
-    def __init__(self, in_channels, inter_channels=None, num_heads=16, window_size=8, num_global_tokens=1):
+    def __init__(self, in_channels, inter_channels=None, num_heads=8, window_size=8, num_global_tokens=1):
         super(NonLocalBlock, self).__init__()
         self.in_channels = in_channels
         self.inter_channels = inter_channels or in_channels // 2
@@ -52,7 +52,7 @@ class NonLocalBlock(nn.Module):
         self.global_tokens = nn.Parameter(torch.randn(self.num_global_tokens, self.inter_channels))
         
         self.W_z = nn.Sequential(
-            nn.Conv2d(self.inter_channels, self.in_channels, kernel_size=1),
+            nn.Conv2d(self.inter_channels, self.in_channels, kernel_size=1, bias=False),
             nn.BatchNorm2d(self.in_channels)
         )
         nn.init.constant_(self.W_z[1].weight, 0)
@@ -60,6 +60,35 @@ class NonLocalBlock(nn.Module):
 
     def forward(self, x_thisBranch, x_otherBranch):
         B, C, H, W = x_thisBranch.size()
+        
+        """ # (1) 윈도우 분할 대신, 전체 (H×W)에 대한 쿼리/키/값 생성
+        #     -> 기존 window_partition 제거
+        query = self.query_conv(x_otherBranch)   # (B, inter_channels, H, W)
+        key   = self.key_conv(x_thisBranch)      # (B, inter_channels, H, W)
+        value = self.value_conv(x_thisBranch)    # (B, inter_channels, H, W)
+
+        # (2) Multi-head을 위해 (B, inter_channels, H, W)를 (B, num_heads, head_dim, H*W)로 변환
+        #     그리고 (B, num_heads, H*W, head_dim) 형태가 되도록 permute
+        N = H * W  # 전체 픽셀 수
+        query = query.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
+        key   = key.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
+        value = value.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
+
+        # (3) 어텐션 스코어 계산
+        #     attention_scores: (B, num_heads, (num_global_tokens + N), (num_global_tokens + N))
+        attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (self.head_dim ** 0.5)
+        attention_weights = F.softmax(attention_scores, dim=-1)
+
+        # (4) 어텐션 결과(문맥 벡터) 계산
+        #     out: (B, num_heads, (num_global_tokens + N), head_dim)
+        out = torch.matmul(attention_weights, value)
+
+        # (5) 다시 (B, inter_channels, H, W) 형태로 복원
+        out = out.permute(0, 1, 3, 2).contiguous()  # (B, num_heads, head_dim, N)
+        out = out.view(B, self.inter_channels, H, W)
+
+        # (6) 최종 projection
+        z = self.W_z(out)  # (B, C, H, W) """
 
         # 윈도우 분할
         x_this_win = window_partition(x_thisBranch, self.window_size)
@@ -100,9 +129,9 @@ class NonLocalBlock(nn.Module):
         
         return z, attention_weights
 
-class DoubleConvDownCross(nn.Module):
+class DoubleConv(nn.Module):
     def __init__(self, in_channels, out_channels, mid_channels=None):
-        super(DoubleConvDownCross, self).__init__()
+        super(DoubleConv, self).__init__()
         if not mid_channels:
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
@@ -131,7 +160,7 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         del self.avgpool
 
         # Non-local block 파라미터 (예: resnet50 기준)
-        self.window_size = 8
+        self.window_size = 16
         self.num_global_tokens = 1
         self.num_heads = 16
 
@@ -142,7 +171,8 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.cross_attention_next_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
-        self.downcross_3 = DoubleConvDownCross(3072, 1024, 1024)
+        self.compress_3 = nn.Conv2d(3072, 1024, kernel_size=1, bias=False)
+        self.double_conv_3 = DoubleConv(1024, 1024, 1024)
 
         # layer4용 Non-Local Block
         self.cross_attention_prev_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
@@ -151,7 +181,8 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.cross_attention_next_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
-        self.downcross_4 = DoubleConvDownCross(6144, 2048, 2048)
+        self.compress_4 = nn.Conv2d(6144, 2048, kernel_size=1, bias=False)
+        self.double_conv_4 = DoubleConv(2048, 2048, 2048)
 
     """ def get_stages(self):
         return [
@@ -229,7 +260,9 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
                 xt2, _ = self.cross_attention_self_3(x_blocks, x_blocks)
                 xt3, _ = self.cross_attention_next_3(x_blocks, x_next_blocks)
                 xt = torch.cat([xt1, xt2, xt3], dim=1)
-                xt_downcross = self.downcross_3(xt)
+                
+                xt = self.compress_3(xt)
+                xt_downcross = self.double_conv_3(xt)
                 
                 x_blocks = xt_downcross + skip_x_main_3
 
@@ -257,7 +290,9 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
                 xt2, _ = self.cross_attention_self_4(x_blocks, x_blocks)
                 xt3, _ = self.cross_attention_next_4(x_blocks, x_next_blocks)
                 xt = torch.cat([xt1, xt2, xt3], dim=1)
-                xt_downcross = self.downcross_4(xt)
+
+                xt = self.compress_4(xt)
+                xt_downcross = self.double_conv_4(xt)
                 
                 x_blocks = xt_downcross + skip_x_main_4
 
