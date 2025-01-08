@@ -69,7 +69,17 @@ class DiceLoss(nn.Module):
     
 class FocalLoss(nn.Module):
     def __init__(self, alpha=1.0, gamma=2.0, reduction='mean', ignore_index=None):
+        """
+        alpha: 스칼라 혹은 길이 C인 리스트/텐서
+               - 예) alpha = [1.0, 2.0, 0.5, ...] 처럼 클래스별로 부여 가능
+        gamma: Focal Loss의 (1 - pt)^gamma 에서의 gamma
+        reduction: 'mean' | 'sum' | 'none'
+        ignore_index: 무시할 클래스 인덱스 (ex. 배경)
+        """
         super(FocalLoss, self).__init__()
+        if isinstance(alpha, (list, tuple)):
+            # 리스트나 튜플이면 텐서로 변환
+            alpha = torch.tensor(alpha, dtype=torch.float32)
         self.alpha = alpha
         self.gamma = gamma
         self.reduction = reduction
@@ -80,40 +90,49 @@ class FocalLoss(nn.Module):
         inputs: (N, C, H, W) 형태의 로짓(logits)
         targets: (N, H, W) 형태로, 각 픽셀이 [0, C-1] 범위를 갖는 정수 레이블
         """
-        # log_softmax로 변환 -> log_pt
+        # 1) log_softmax 계산
         log_pt = F.log_softmax(inputs, dim=1)  # (N, C, H, W)
-        
-        # pt = exp(log_pt)
-        pt = torch.exp(log_pt)  # 확률 형태로 변환
+        pt = torch.exp(log_pt)                 # (N, C, H, W)
 
-        # gather를 이용해 정답 클래스에 해당하는 log_pt, pt만 추출
-        # targets.unsqueeze(1)의 shape: (N, 1, H, W)
+        # 2) gather를 통해 각 픽셀의 정답 클래스 위치 인덱스에 해당하는 log_pt, pt만 추출
         log_pt = log_pt.gather(dim=1, index=targets.unsqueeze(1))  # (N, 1, H, W)
-        log_pt = log_pt.view(-1)  # (N*H*W,)
-
         pt = pt.gather(dim=1, index=targets.unsqueeze(1))          # (N, 1, H, W)
-        pt = pt.view(-1)                                           # (N*H*W,)
 
-        # ignore_index가 설정되어 있으면, 해당 인덱스 위치는 무시
+        # 3) 벡터화 위해 shape 조정 (N*H*W,)
+        log_pt = log_pt.view(-1)
+        pt = pt.view(-1)
+        targets_flat = targets.view(-1)
+
+        # 4) ignore_index 처리
         if self.ignore_index is not None:
-            valid_mask = (targets.view(-1) != self.ignore_index)
+            valid_mask = (targets_flat != self.ignore_index)
             log_pt = log_pt[valid_mask]
             pt = pt[valid_mask]
+            targets_flat = targets_flat[valid_mask]
 
-        # Focal term: (1 - pt)^gamma
+        # 5) focal_term 계산: (1 - pt)^gamma
         focal_term = (1 - pt) ** self.gamma
 
-        # alpha 적용 (특정 클래스에 가중치가 있는 경우, 여기서 클래스별 처리 가능)
-        # 이 예시에선 alpha가 스칼라라고 가정
-        loss = -self.alpha * focal_term * log_pt  # 음수 부호에 주의: -log_pt
+        # 6) alpha 적용
+        #    - alpha가 스칼라인 경우: 모든 클래스에 동일하게 alpha
+        #    - alpha가 길이 C인 벡터인 경우: targets_flat을 index로 해서 해당 alpha만 가져옴
+        if isinstance(self.alpha, torch.Tensor):
+            if self.alpha.device != inputs.device:
+                self.alpha = self.alpha.to(inputs.device)
+            alpha_t = self.alpha[targets_flat]  # (N*H*W,) 중 valid_mask 부분
+        else:
+            alpha_t = self.alpha  # 스칼라
 
-        # reduction 방식 적용
+        # 7) Focal Loss 최종 계산
+        loss = -alpha_t * focal_term * log_pt  # -log_pt에 alpha와 focal_term 곱
+
+        # 8) reduction 처리
         if self.reduction == 'mean':
             return loss.mean()
         elif self.reduction == 'sum':
             return loss.sum()
         else:
-            # 'none'인 경우, (N*H*W,) 형태의 텐서를 그대로 반환
+            # 'none'인 경우 (N*H*W,) 형태의 텐서 그대로 반환
             return loss
 
 def compute_dice_coefficient(mask_gt, mask_pred):
