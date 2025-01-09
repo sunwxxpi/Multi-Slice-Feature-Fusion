@@ -1,10 +1,7 @@
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import _LRScheduler
-from sklearn.metrics import precision_recall_curve, auc
-from scipy.spatial.distance import directed_hausdorff
 
 class PolyLRScheduler(_LRScheduler):
     def __init__(self, optimizer, initial_lr: float, max_steps: int, exponent: float = 0.9, current_step: int = None):
@@ -134,41 +131,3 @@ class FocalLoss(nn.Module):
         else:
             # 'none'인 경우 (N*H*W,) 형태의 텐서 그대로 반환
             return loss
-
-def compute_dice_coefficient(mask_gt, mask_pred):
-    volume_sum = mask_gt.sum() + mask_pred.sum()
-    if volume_sum == 0:
-        return np.NaN
-    volume_intersect = (mask_gt & mask_pred).sum()
-    return 2 * volume_intersect / volume_sum
-
-def compute_average_precision(mask_gt, mask_pred):
-    precision, recall, _ = precision_recall_curve(mask_gt.flatten(), mask_pred.flatten())
-    return auc(recall, precision)
-
-def compute_hausdorff_distance(mask_gt, mask_pred):
-    gt_points = np.transpose(np.nonzero(mask_gt))
-    pred_points = np.transpose(np.nonzero(mask_pred))
-    if len(gt_points) == 0 or len(pred_points) == 0:
-        return np.NaN
-    hd_1 = directed_hausdorff(gt_points, pred_points)[0]
-    hd_2 = directed_hausdorff(pred_points, gt_points)[0]
-    return max(hd_1, hd_2)
-
-def calculate_metric_percase(pred, gt):
-    pred[pred > 0] = 1
-    gt[gt > 0] = 1
-    if gt.sum() == 0 and pred.sum() == 0:
-        dice = 1
-        m_ap = 1
-        hd = 0
-    elif gt.sum() == 0 and pred.sum() > 0:
-        dice = 0
-        m_ap = 0
-        hd = np.NaN
-    else:
-        dice = compute_dice_coefficient(gt, pred)
-        m_ap = compute_average_precision(gt, pred)
-        hd = compute_hausdorff_distance(gt, pred)
-
-    return dice, m_ap, hd
