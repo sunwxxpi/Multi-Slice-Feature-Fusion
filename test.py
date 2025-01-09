@@ -8,6 +8,7 @@ import torch
 import torch.backends.cudnn as cudnn
 import segmentation_models_pytorch as smp
 from glob import glob
+from tester import inference
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--volume_path', type=str, default='./data/COCA/test_npz', help='root dir for test npz data')
