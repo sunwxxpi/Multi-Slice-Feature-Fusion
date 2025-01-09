@@ -85,9 +85,10 @@ if __name__ == "__main__":
     with open(output_file, "w") as file:
         file.write(torchinfo_summary)
 
-    snapshot_path = f"./model/{net.__class__.__name__ + '_' + args.encoder}/{dataset_name + '_' + str(args.img_size)}/{args.exp_setting}/{'epo' + str(args.max_epochs)}"
-    snapshot_path = snapshot_path + '_bs' + str(args.batch_size)
-    snapshot_path = snapshot_path + '_lr' + str(args.base_lr)
+    exp_path = os.path.join(net.__class__.__name__ + '_' + args.encoder, dataset_name + '_' + str(args.img_size), args.exp_setting)
+    parameter_path = 'epo' + str(args.max_epochs) + '_bs' + str(args.batch_size) + '_lr' + str(args.base_lr)
+    
+    snapshot_path = os.path.join("./model/", exp_path, parameter_path)
 
     if not os.path.exists(snapshot_path):
         os.makedirs(snapshot_path)

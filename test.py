@@ -117,29 +117,27 @@ if __name__ == "__main__":
             classes=args.num_classes,           # model output channels (number of classes in your dataset)
             ).cuda()
     
-    snapshot_path = f"./model/{net.__class__.__name__ + '_' + args.encoder}/{dataset_name + '_' + str(args.img_size)}/{args.exp_setting}/{'epo' + str(args.max_epochs)}"
-    snapshot_path = snapshot_path + '_bs' + str(args.batch_size)
-    snapshot_path = snapshot_path + '_lr' + str(args.base_lr)
+    exp_path = os.path.join(net.__class__.__name__ + '_' + args.encoder, dataset_name + '_' + str(args.img_size), args.exp_setting)
+    parameter_path = 'epo' + str(args.max_epochs) + '_bs' + str(args.batch_size) + '_lr' + str(args.base_lr)
     
+    snapshot_path = os.path.join("./model/", exp_path, parameter_path)
     best_model_path = glob(os.path.join(snapshot_path, '*_best_model.pth'))[0] # 유일한 best_model 파일 선택
     if not best_model_path:
         raise FileNotFoundError(f"Best model not found at {snapshot_path}")
     net.load_state_dict(torch.load(best_model_path))
     print(f"Loaded best model from: {best_model_path}")
     
-    snapshot_name = snapshot_path.split('/')[-1]
-    log_folder = f"./test_log/{net.__class__.__name__ + '_' + args.encoder}/{dataset_name + '_' + str(args.img_size)}/{args.exp_setting}"
-    os.makedirs(log_folder, exist_ok=True)
-    logging.basicConfig(filename=log_folder + '/' + snapshot_name + ".txt", level=logging.INFO,
+    log_path = os.path.join("./test_log", exp_path, parameter_path)
+    os.makedirs(log_path, exist_ok=True)
+    logging.basicConfig(filename=log_path + "/" + "results.txt", level=logging.INFO,
                         format='[%(asctime)s.%(msecs)03d] %(message)s', datefmt='%H:%M:%S')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
     logging.info(best_model_path)
     logging.info(str(args))
-    logging.info(snapshot_name)
+    logging.info(parameter_path)
 
     if args.is_savenii:
-        args.test_save_dir = './predictions'
-        test_save_path = os.path.join(args.test_save_dir, net.__class__.__name__ + '_' + args.encoder, snapshot_name)
+        test_save_path = os.path.join(log_path, "results_nii")
         os.makedirs(test_save_path, exist_ok=True)
     else:
         test_save_path = None
