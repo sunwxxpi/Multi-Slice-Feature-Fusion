@@ -23,7 +23,6 @@ parser.add_argument('--num_classes', type=int, default=5, help='output channel o
 parser.add_argument('--max_epochs', type=int, default=1000, help='maximum epoch number to train')
 parser.add_argument('--batch_size', type=int, default=96, help='batch_size per gpu')
 parser.add_argument('--img_size', type=int, default=224, help='input patch size of network input')
-parser.add_argument('--test_save_dir', type=str, default='./predictions', help='saving prediction as nii!')
 parser.add_argument('--deterministic', type=int, default=1, help='whether use deterministic training')
 parser.add_argument('--base_lr', type=float, default=0.01, help='segmentation network learning rate')
 parser.add_argument('--seed', type=int, default=1234, help='random seed')
@@ -47,10 +46,6 @@ def run_inference_on_slice(
     image: torch.Tensor,
     label: torch.Tensor,
     model: torch.nn.Module,
-    patch_size=(256, 256),
-    test_save_path=None,
-    case_name=None,
-    z_spacing=1
 ):
     """
     슬라이스 단위로 추론하는 함수.
@@ -60,10 +55,6 @@ def run_inference_on_slice(
         image:  (B=1, 3, H, W) 형태의 텐서.
         label:  (B=1, H, W) 형태의 텐서.
         model:  추론할 모델(torch.nn.Module).
-        patch_size: (height, width) 모델에 입력할 기본 크기.
-        test_save_path: (옵션) 슬라이스별 nii.gz 저장 경로.
-        case_name: (옵션) 파일 저장 시 사용될 case 식별자.
-        z_spacing:  (옵션) 저장 시의 Z축 spacing 값.
 
     Returns:
         pred_slice (np.ndarray): (H, W), 슬라이스 예측 결과(0~N).
@@ -83,24 +74,6 @@ def run_inference_on_slice(
 
     prediction = pred_2d.astype(np.uint8)
     label_slice = label_np.astype(np.uint8)
-
-    # (옵션) 슬라이스 결과 저장
-    if test_save_path is not None and case_name is not None:
-        img_for_save = image_np.transpose(1, 2, 0)  # (H, W, 3)
-        pred_for_save = prediction
-        label_for_save = label_slice
-
-        img_itk = sitk.GetImageFromArray(img_for_save.astype(np.float32))
-        pred_itk = sitk.GetImageFromArray(pred_for_save.astype(np.float32))
-        label_itk = sitk.GetImageFromArray(label_for_save.astype(np.float32))
-
-        img_itk.SetSpacing((0.375, 0.375, z_spacing))
-        pred_itk.SetSpacing((0.375, 0.375, z_spacing))
-        label_itk.SetSpacing((0.375, 0.375, z_spacing))
-
-        sitk.WriteImage(pred_itk, f"{test_save_path}/{case_name}_pred.nii.gz")
-        sitk.WriteImage(img_itk,  f"{test_save_path}/{case_name}_img.nii.gz")
-        sitk.WriteImage(label_itk, f"{test_save_path}/{case_name}_gt.nii.gz")
 
     return prediction, label_slice
 
@@ -137,7 +110,6 @@ def build_3d_volume(pred_slices: dict, label_slices: dict):
 
     return pred_3d, label_3d
 
-
 def inference(args, model, test_save_path=None):
     # 1) DataLoader 준비
     test_transform = T.Compose([
@@ -169,13 +141,7 @@ def inference(args, model, test_save_path=None):
         case_id, slice_id = parse_case_and_slice_id(full_case_name)
 
         # 슬라이스 추론
-        pred_2d, label_2d = run_inference_on_slice(
-            image, label, model,
-            patch_size=[args.img_size, args.img_size],
-            test_save_path=test_save_path,
-            case_name=full_case_name,
-            z_spacing=args.z_spacing
-        )
+        pred_2d, label_2d = run_inference_on_slice(image, label, model)
 
         # 누적
         accumulate_slice_prediction(pred_slices_dict, label_slices_dict, case_id, slice_id, pred_2d, label_2d)
@@ -187,6 +153,19 @@ def inference(args, model, test_save_path=None):
     for case_id in case_list:
         # (H, W, depth)
         pred_3d, label_3d = build_3d_volume(pred_slices_dict[case_id], label_slices_dict[case_id])
+        
+        pred_3d = np.transpose(pred_3d, (2, 0, 1))   # (depth, H, W)
+        label_3d = np.transpose(label_3d, (2, 0, 1)) # (depth, H, W)
+        
+        if args.is_savenii and test_save_path is not None:
+            pred_itk  = sitk.GetImageFromArray(pred_3d.astype(np.float32))
+            label_itk = sitk.GetImageFromArray(label_3d.astype(np.float32))
+
+            pred_itk.SetSpacing((0.375, 0.375, args.z_spacing))
+            label_itk.SetSpacing((0.375, 0.375, args.z_spacing))
+
+            sitk.WriteImage(pred_itk,  f"{test_save_path}/{case_id}_pred.nii.gz")
+            sitk.WriteImage(label_itk, f"{test_save_path}/{case_id}_gt.nii.gz")
 
         # 클래스별 Dice, mAP, HD
         metrics_this_case = []
@@ -274,29 +253,27 @@ if __name__ == "__main__":
             classes=args.num_classes,
             ).cuda()
     
-    snapshot_path = f"./model/{net.__class__.__name__ + '_' + args.encoder}/{dataset_name + '_' + str(args.img_size)}/{args.exp_setting}/{'epo' + str(args.max_epochs)}"
-    snapshot_path = snapshot_path + '_bs' + str(args.batch_size)
-    snapshot_path = snapshot_path + '_lr' + str(args.base_lr)
+    exp_path = os.path.join(net.__class__.__name__ + '_' + args.encoder, dataset_name + '_' + str(args.img_size), args.exp_setting)
+    parameter_path = 'epo' + str(args.max_epochs) + '_bs' + str(args.batch_size) + '_lr' + str(args.base_lr)
     
+    snapshot_path = os.path.join("./model/", exp_path, parameter_path)
     best_model_path = glob(os.path.join(snapshot_path, '*_best_model.pth'))[0] # 유일한 best_model 파일 선택
     if not best_model_path:
         raise FileNotFoundError(f"Best model not found at {snapshot_path}")
     net.load_state_dict(torch.load(best_model_path))
     print(f"Loaded best model from: {best_model_path}")
     
-    snapshot_name = snapshot_path.split('/')[-1]
-    log_folder = f"./test_log/{net.__class__.__name__ + '_' + args.encoder}/{dataset_name + '_' + str(args.img_size)}/{args.exp_setting}"
-    os.makedirs(log_folder, exist_ok=True)
-    logging.basicConfig(filename=log_folder + '/' + snapshot_name + ".txt", level=logging.INFO,
+    log_path = os.path.join("./test_log", exp_path, parameter_path)
+    os.makedirs(log_path, exist_ok=True)
+    logging.basicConfig(filename=log_path + "/" + "results.txt", level=logging.INFO,
                         format='[%(asctime)s.%(msecs)03d] %(message)s', datefmt='%H:%M:%S')
     logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
     logging.info(best_model_path)
     logging.info(str(args))
-    logging.info(snapshot_name)
+    logging.info(parameter_path)
 
     if args.is_savenii:
-        args.test_save_dir = './predictions'
-        test_save_path = os.path.join(args.test_save_dir, net.__class__.__name__ + '_' + args.encoder, snapshot_name)
+        test_save_path = os.path.join(log_path, "results_nii")
         os.makedirs(test_save_path, exist_ok=True)
     else:
         test_save_path = None
