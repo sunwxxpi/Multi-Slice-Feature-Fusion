@@ -30,7 +30,7 @@ def random_rotate(image, label):
     
     return image, label
 
-def ct_normalization(image, lower=1016, upper=1807, mean=1223.2043595897762, std=133.03651991499345):
+def ct_normalization(image, lower=1017, upper=1801, mean=1222.90087890625, std=132.62820434570312):
     """Normalize the CT image using fixed intensity range and standardization."""
     np.clip(image, lower, upper, out=image)
     image = (image - mean) / max(std, 1e-8)
