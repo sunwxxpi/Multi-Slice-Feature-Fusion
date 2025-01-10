@@ -59,6 +59,6 @@ if __name__ == "__main__":
     snapshot_path = os.path.join("./model/", exp_path, parameter_path)
 
     os.makedirs(snapshot_path, exist_ok=True)
-        
+
     trainer = {'COCA': trainer_coca}
     trainer[args.dataset](args, net, snapshot_path)
