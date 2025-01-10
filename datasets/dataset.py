@@ -91,18 +91,6 @@ class ToTensor:
         
         return sample
 
-class RandomGenerator:
-    """Compose random augmentations and preprocessing for training."""
-    def __init__(self, output_size):
-        self.transform = T.Compose([
-            RandomAugmentation(),
-            Resize(output_size),
-            ToTensor()
-        ])
-
-    def __call__(self, sample):
-        return self.transform(sample)
-
 class COCA_dataset(Dataset):
     """Custom dataset for COCA data."""
     def __init__(self, base_dir, list_dir, split, transform=None, train_ratio=0.8):

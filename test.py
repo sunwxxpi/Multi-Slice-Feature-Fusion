@@ -8,10 +8,8 @@ import torch
 import torch.backends.cudnn as cudnn
 import segmentation_models_pytorch as smp
 from glob import glob
-from tqdm import tqdm
-from torch.utils.data import DataLoader
 from datasets.dataset import COCA_dataset
-from utils import test_single_volume
+from tester import inference
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--volume_path', type=str, default='./data/COCA/test_vol_h5', help='root dir for validation volume data')
@@ -27,47 +25,6 @@ parser.add_argument('--base_lr', type=float, default=0.01, help='segmentation ne
 parser.add_argument('--seed', type=int, default=1234, help='random seed')
 parser.add_argument('--is_savenii', action="store_true", help='whether to save results during inference')
 args = parser.parse_args()
-
-def inference(args, model, test_save_path=None):
-    db_test = COCA_dataset(
-        base_dir=args.volume_path, 
-        split="test", 
-        list_dir=args.list_dir,
-    )
-    testloader = DataLoader(db_test, batch_size=1, shuffle=False, num_workers=1)
-    
-    logging.info("{} test iterations per epoch".format(len(testloader)))
-    model.eval()
-    
-    metric_list_all = []
-    
-    for i_batch, sampled_batch in tqdm(enumerate(testloader, start=1)):
-        image, label, case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
-        
-        metric_i = test_single_volume(image, label, model, classes=args.num_classes, patch_size=[args.img_size, args.img_size],
-                                      test_save_path=test_save_path, case=case_name, z_spacing=args.z_spacing)
-        metric_list_all.append(metric_i)
-        
-        mean_dice_case = np.nanmean(metric_i, axis=0)[0]
-        mean_m_ap_case = np.nanmean(metric_i, axis=0)[1]
-        mean_hd95_case = np.nanmean(metric_i, axis=0)[2]
-        logging.info('%s - mean_dice: %.4f, mean_m_ap: %.4f, mean_hd95: %.2f' % (case_name, mean_dice_case, mean_m_ap_case, mean_hd95_case))
-    
-    metric_array = np.array(metric_list_all)
-    
-    for i in range(1, args.num_classes):
-        class_dice = np.nanmean(metric_array[:, i-1, 0])
-        class_m_ap = np.nanmean(metric_array[:, i-1, 1])
-        class_hd95 = np.nanmean(metric_array[:, i-1, 2])
-        logging.info('Mean class %d - mean_dice: %.4f, mean_m_ap: %.4f, mean_hd95: %.2f' % (i, class_dice, class_m_ap, class_hd95))
-        
-    mean_dice = np.nanmean(metric_array[:,:,0])
-    mean_m_ap = np.nanmean(metric_array[:,:,1])
-    mean_hd95 = np.nanmean(metric_array[:,:,2])
-    
-    logging.info('Testing performance in best val model - mean_dice : %.4f, mean_m_ap : %.4f, mean_hd95 : %.2f' % (mean_dice, mean_m_ap, mean_hd95))
-    
-    return "Testing Finished!"
 
 if __name__ == "__main__":
     if not args.deterministic:

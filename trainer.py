@@ -11,7 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 from tqdm import tqdm
 from utils import PolyLRScheduler, DiceLoss
-from datasets.dataset import shuffle_within_batch, COCA_dataset, RandomGenerator, Resize, ToTensor
+from datasets.dataset import shuffle_within_batch, COCA_dataset, RandomAugmentation, Resize, ToTensor
 
 def trainer_coca(args, model, snapshot_path):
     logging.basicConfig(filename=snapshot_path + "/log.txt", 
@@ -25,7 +25,11 @@ def trainer_coca(args, model, snapshot_path):
     num_classes = args.num_classes
     batch_size = args.batch_size
     
-    train_transform = RandomGenerator(output_size=[args.img_size, args.img_size])
+    train_transform = T.Compose([
+            RandomAugmentation(),
+            Resize(output_size=[args.img_size, args.img_size]),
+            ToTensor()
+        ])
     db_train = COCA_dataset(
         base_dir=args.root_path,
         list_dir=args.list_dir,
