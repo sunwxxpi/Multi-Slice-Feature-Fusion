@@ -74,7 +74,7 @@ if __name__ == "__main__":
             classes=args.num_classes,
             ).cuda()
     
-    from torchinfo import summary
+    """ from torchinfo import summary
     torchinfo_summary = str(summary(net, 
                                     input_size=(args.batch_size, 1, args.img_size, args.img_size), 
                                     col_width=20, 
@@ -83,7 +83,7 @@ if __name__ == "__main__":
                                     col_names=["input_size", "kernel_size", "output_size", "params_percent"]))
     output_file = "model_summary.txt"
     with open(output_file, "w") as file:
-        file.write(torchinfo_summary)
+        file.write(torchinfo_summary) """
 
     exp_path = os.path.join(net.__class__.__name__ + '_' + args.encoder, dataset_name + '_' + str(args.img_size), args.exp_setting)
     parameter_path = 'epo' + str(args.max_epochs) + '_bs' + str(args.batch_size) + '_lr' + str(args.base_lr)
