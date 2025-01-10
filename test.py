@@ -68,10 +68,10 @@ if __name__ == "__main__":
     args.z_spacing = dataset_config[dataset_name]['z_spacing']
     
     net = smp.Unet(
-            encoder_name=args.encoder,            # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
-            encoder_weights="imagenet",         # use `imagenet` pre-trained weights for encoder initialization
-            in_channels=1,                      # model input channels (1 for gray-scale images, 3 for RGB, etc.)
-            classes=args.num_classes,           # model output channels (number of classes in your dataset)
+            encoder_name=args.encoder,
+            encoder_weights="imagenet",
+            in_channels=1,
+            classes=args.num_classes,
             ).cuda()
     
     exp_path = os.path.join(net.__class__.__name__ + '_' + args.encoder, dataset_name + '_' + str(args.img_size), args.exp_setting)

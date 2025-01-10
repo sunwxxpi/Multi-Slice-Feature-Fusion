@@ -68,10 +68,10 @@ if __name__ == "__main__":
     args.exp_setting = dataset_config[dataset_name]['exp_setting']
 
     net = smp.Unet(
-            encoder_name=args.encoder,          # choose encoder, e.g. mobilenet_v2 or efficientnet-b7
-            encoder_weights="imagenet",         # use `imagenet` pre-trained weights for encoder initialization
-            in_channels=1,                      # model input channels (1 for gray-scale images, 3 for RGB, etc.)
-            classes=args.num_classes,           # model output channels (number of classes in your dataset)
+            encoder_name=args.encoder,
+            encoder_weights="imagenet",
+            in_channels=1,
+            classes=args.num_classes,
             ).cuda()
     
     from torchinfo import summary
