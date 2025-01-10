@@ -37,12 +37,6 @@ def ct_normalization(image, lower=1017, upper=1801, mean=1222.90087890625, std=1
     
     return image
 
-def fixed_min_max_normalization(image, min_val=0, max_val=2500):
-    """Normalize the image based on fixed min and max values of 0 and 2500."""
-    normalized_img = (image - min_val) / (max_val - min_val)
-    
-    return np.clip(normalized_img, 0, 1)
-
 def shuffle_within_batch(batch):
     random.shuffle(batch)
     
