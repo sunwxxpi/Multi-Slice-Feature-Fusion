@@ -60,11 +60,7 @@ def parse_case_and_slice_id(full_name: str):
         slice_id = 0
     return case_id, slice_id
 
-def run_inference_on_slice(
-    image: torch.Tensor,
-    label: torch.Tensor,
-    model: torch.nn.Module,
-):
+def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torch.nn.Module,):
     """
     슬라이스 단위로 추론하는 함수.
     (3장 슬라이스를 채널로 쌓은 2D 입력 -> 모델 예측 -> 2D 결과 반환)
