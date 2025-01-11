@@ -30,6 +30,9 @@ def compute_hausdorff_distance(mask_gt, mask_pred):
     return max(hd_1, hd_2)
 
 def calculate_metric_percase(pred, gt):
+    """
+    pred, gt가 이미 특정 클래스에 대한 mask로 binary 형태라고 가정.
+    """
     pred[pred > 0] = 1
     gt[gt > 0] = 1
     if gt.sum() == 0 and pred.sum() == 0:
@@ -60,7 +63,7 @@ def parse_case_and_slice_id(full_name: str):
         slice_id = 0
     return case_id, slice_id
 
-def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torch.nn.Module,):
+def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torch.nn.Module):
     """
     슬라이스 단위로 추론하는 함수.
     (3장 슬라이스를 채널로 쌓은 2D 입력 -> 모델 예측 -> 2D 결과 반환)
@@ -102,7 +105,7 @@ def accumulate_slice_prediction(pred_dict, label_dict, case_id, slice_id, pred_2
         label_dict[case_id] = {}
     pred_dict[case_id][slice_id] = pred_2d
     label_dict[case_id][slice_id] = label_2d
-    
+
 def build_3d_volume(pred_slices: dict, label_slices: dict):
     """
     {slice_id: 2D pred, ...} -> 3D (H, W, depth) 배열로 변환
@@ -160,7 +163,7 @@ def inference(args, model, test_save_path=None):
         # 누적
         accumulate_slice_prediction(pred_slices_dict, label_slices_dict, case_id, slice_id, pred_2d, label_2d)
 
-    # 4) 케이스 단위로 3D 볼륨 합치고, 메트릭 계산
+    # 4) 케이스 단위로 3D 볼륨 합치고, 메트릭 계산 (3D 평가)
     metric_list_per_case = []
     case_list = sorted(pred_slices_dict.keys())
 
@@ -181,41 +184,77 @@ def inference(args, model, test_save_path=None):
             sitk.WriteImage(pred_itk,  f"{test_save_path}/{case_id}_pred.nii.gz")
             sitk.WriteImage(label_itk, f"{test_save_path}/{case_id}_gt.nii.gz")
 
-        # 클래스별 Dice, mAP, HD
+        # 클래스별 Dice, mAP, HD (3D 볼륨 기준)
         metrics_this_case = []
         for c in range(1, args.num_classes):
             dice, m_ap, hd = calculate_metric_percase(pred_3d == c, label_3d == c)
             metrics_this_case.append((dice, m_ap, hd))
         
-        metrics_this_case = np.array(metrics_this_case)  # (num_classes-1, 3)
+        metrics_this_case = np.array(metrics_this_case)
         metric_list_per_case.append(metrics_this_case)
 
         # 케이스별 평균 로깅
         mean_dice_case = np.nanmean(metrics_this_case[:, 0])
         mean_map_case  = np.nanmean(metrics_this_case[:, 1])
         mean_hd_case   = np.nanmean(metrics_this_case[:, 2])
-        logging.info(
-            f"{case_id} - mean_dice: {mean_dice_case:.4f}, mean_m_ap: {mean_map_case:.4f}, mean_hd95: {mean_hd_case:.2f}"
-        )
+        logging.info(f"{case_id} - Dice: {mean_dice_case:.4f}, mAP: {mean_map_case:.4f}, HD95: {mean_hd_case:.2f}")
 
-    # 5) 전체 케이스 평균
-    metric_array = np.array(metric_list_per_case)  # (n_cases, num_classes-1, 3)
+    # 5) 전체 케이스 평균 (3D 볼륨)
+    metric_array = np.array(metric_list_per_case)
 
-    # 클래스별 평균
+    # 클래스별 평균 (3D)
     for c_idx in range(1, args.num_classes):
         dice_c = np.nanmean(metric_array[:, c_idx-1, 0])
         map_c  = np.nanmean(metric_array[:, c_idx-1, 1])
         hd_c   = np.nanmean(metric_array[:, c_idx-1, 2])
-        logging.info(
-            f"Mean class {c_idx} - dice: {dice_c:.4f}, m_ap: {map_c:.4f}, hd95: {hd_c:.2f}"
-        )
+        logging.info(f"[3D] Class {c_idx} - Dice: {dice_c:.4f}, mAP: {map_c:.4f}, HD95: {hd_c:.2f}")
 
-    # 전체 평균
+    # 전체 평균 (3D)
     mean_dice_all = np.nanmean(metric_array[:, :, 0])
     mean_map_all  = np.nanmean(metric_array[:, :, 1])
     mean_hd_all   = np.nanmean(metric_array[:, :, 2])
-    logging.info(
-        f"Testing performance - mean_dice: {mean_dice_all:.4f}, mean_m_ap: {mean_map_all:.4f}, mean_hd95: {mean_hd_all:.2f}"
-    )
+    logging.info(f"[3D] Testing performance - Mean Dice: {mean_dice_all:.4f}, Mean mAP: {mean_map_all:.4f}, Mean HD95: {mean_hd_all:.2f}")
+
+    ### (수정) 2D LesionOnly 평가: HD는 제외 ###
+    # 6) 2D 슬라이스 레벨에서, 실제 병변이 존재하는 슬라이스만 Dice/mAP 계산
+    lesion_slice_metrics = {c: [] for c in range(1, args.num_classes)}  # 클래스별 (Dice, mAP)만 저장
+
+    for case_id in case_list:
+        # 케이스의 모든 슬라이스 순회
+        sorted_slice_ids = sorted(pred_slices_dict[case_id].keys())
+        for slice_id in sorted_slice_ids:
+            pred_2d = pred_slices_dict[case_id][slice_id]
+            label_2d = label_slices_dict[case_id][slice_id]
+            
+            for c in range(1, args.num_classes):
+                # 해당 슬라이스에 '클래스 c' 병변이 실제로 존재하는가?
+                gt_mask = (label_2d == c)
+                if gt_mask.sum() > 0:
+                    pr_mask = (pred_2d == c)
+                    # HD는 이번엔 제외하므로 '_'로 무시
+                    dice_2d, map_2d, _ = calculate_metric_percase(pr_mask, gt_mask)
+                    lesion_slice_metrics[c].append((dice_2d, map_2d))
+
+    # 클래스별 "병변 존재 슬라이스" 평균 (Dice, mAP)
+    all_classes_dice = []
+    all_classes_map = []
+    for c in range(1, args.num_classes):
+        metrics_c = np.array(lesion_slice_metrics[c])
+        if len(metrics_c) == 0:
+            logging.info(f"[2D, LesionOnly] Class {c}: no lesion slice found.")
+            continue
+
+        dice_mean = np.nanmean(metrics_c[:, 0])
+        map_mean  = np.nanmean(metrics_c[:, 1])
+        all_classes_dice.append(dice_mean)
+        all_classes_map.append(map_mean)
+        logging.info(f"[2D, LesionOnly] (#slices: {len(metrics_c)}) Class {c} - Dice: {dice_mean:.4f}, mAP: {map_mean:.4f}")
+
+    if len(all_classes_dice) > 0:
+        mean_dice_2d = np.mean(all_classes_dice)
+        mean_map_2d  = np.mean(all_classes_map)
+        logging.info(f"[2D, LesionOnly] Testing performance - Mean Dice: {mean_dice_2d:.4f}, Mean mAP: {mean_map_2d:.4f}")
+    else:
+        logging.info("[2D, LesionOnly] No lesion slices found for any class.")
 
     return "Testing Finished!"
