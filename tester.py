@@ -61,6 +61,7 @@ def parse_case_and_slice_id(full_name: str):
     else:
         case_id = full_name
         slice_id = 0
+        
     return case_id, slice_id
 
 def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torch.nn.Module):
@@ -103,6 +104,7 @@ def accumulate_slice_prediction(pred_dict, label_dict, case_id, slice_id, pred_2
     if case_id not in pred_dict:
         pred_dict[case_id] = {}
         label_dict[case_id] = {}
+        
     pred_dict[case_id][slice_id] = pred_2d
     label_dict[case_id][slice_id] = label_2d
 
