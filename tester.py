@@ -102,7 +102,7 @@ def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torc
 
     return prediction, label_slice
 
-# 슬라이스 단위로 예측 결과를 dict에 저장
+# 슬라이스 단위 예측 결과를 dict에 저장
 def accumulate_slice_prediction(pred_dict, label_dict, case_id, slice_id, pred_2d, label_2d):
     """
     슬라이스 단위 예측 결과를 dict에 누적.
@@ -222,6 +222,7 @@ def inference(args, model, test_save_path=None):
     metric_array = np.array(metric_list_per_case)
 
     # 클래스별 평균 계산
+    logging.info(f"\n")
     for c_idx in range(1, args.num_classes):
         dice_c = np.nanmean(metric_array[:, c_idx-1, 0])
         map_c  = np.nanmean(metric_array[:, c_idx-1, 1])
@@ -233,9 +234,9 @@ def inference(args, model, test_save_path=None):
     mean_map_all  = np.nanmean(metric_array[:, :, 1])
     mean_hd_all   = np.nanmean(metric_array[:, :, 2])
     logging.info(f"[3D] Testing performance - Mean Dice: {mean_dice_all:.4f}, Mean mAP: {mean_map_all:.4f}, Mean HD95: {mean_hd_all:.2f}")
+    logging.info(f"\n")
 
-    ### 2D LesionOnly 평가: HD는 제외 ###
-    # 6) 2D 슬라이스에서 병변이 존재하는 슬라이스만 평가
+    ### 2D LesionOnly 평가 (특정 Class의 병변이 있는 슬라이스만 평가)###
     lesion_slice_metrics = {c: [] for c in range(1, args.num_classes)}
 
     for case_id in case_list:
@@ -272,7 +273,50 @@ def inference(args, model, test_save_path=None):
         mean_dice_2d = np.mean(all_classes_dice)
         mean_map_2d  = np.mean(all_classes_map)
         logging.info(f"[2D, LesionOnly] Testing performance - Mean Dice: {mean_dice_2d:.4f}, Mean mAP: {mean_map_2d:.4f}")
+        logging.info(f"\n")
     else:
         logging.info("[2D, LesionOnly] No lesion slices found for any class.")
+
+    ### 2D LesionAny 평가 (Background 제외, 병변이 있는 슬라이스만 평가) ###
+    lesion_any_slice_metrics = {c: [] for c in range(1, args.num_classes)}
+    total_lesion_slices = 0
+
+    for case_id in case_list:
+        # 케이스의 모든 슬라이스 순회
+        sorted_slice_ids = sorted(pred_slices_dict[case_id].keys())
+        for slice_id in sorted_slice_ids:
+            pred_2d = pred_slices_dict[case_id][slice_id]
+            label_2d = label_slices_dict[case_id][slice_id]
+            
+            # 어떤 클래스라도 병변이 있는지 확인
+            if np.any(label_2d > 0):
+                total_lesion_slices += 1
+                for c in range(1, args.num_classes):
+                    gt_mask = (label_2d == c)
+                    pr_mask = (pred_2d == c)
+                    dice_2d, map_2d, _ = calculate_metric_percase(pr_mask, gt_mask)
+                    lesion_any_slice_metrics[c].append((dice_2d, map_2d))
+
+    # 클래스별 병변이 있는 모든 슬라이스 평균 계산
+    any_classes_dice = []
+    any_classes_map = []
+    for c in range(1, args.num_classes):
+        metrics_c = np.array(lesion_any_slice_metrics[c])
+        if len(metrics_c) == 0:
+            logging.info(f"[2D, LesionAny] Class {c}: no lesion slice found.")
+            continue
+
+        dice_mean = np.nanmean(metrics_c[:, 0])
+        map_mean  = np.nanmean(metrics_c[:, 1])
+        any_classes_dice.append(dice_mean)
+        any_classes_map.append(map_mean)
+        logging.info(f"[2D, LesionAny] (#slices: {len(metrics_c)}) Class {c} - Dice: {dice_mean:.4f}, mAP: {map_mean:.4f}")
+
+    if len(any_classes_dice) > 0:
+        mean_dice_any_2d = np.mean(any_classes_dice)
+        mean_map_any_2d  = np.mean(any_classes_map)
+        logging.info(f"[2D, LesionAny] Testing performance - Mean Dice: {mean_dice_any_2d:.4f}, Mean mAP: {mean_map_any_2d:.4f}")
+    else:
+        logging.info("[2D, LesionAny] No lesion slices found for any class.")
 
     return "Testing Finished!"
