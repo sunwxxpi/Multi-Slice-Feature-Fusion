@@ -86,20 +86,17 @@ def build_3d_volume(pred_slices: dict, label_slices: dict, case_id, args, test_s
     any_slice = sorted_ids[0]
     H, W = pred_slices[any_slice].shape
 
-    pred_3d = np.zeros((H, W, depth), dtype=np.uint8)
-    label_3d = np.zeros((H, W, depth), dtype=np.uint8)
+    pred_3d = np.zeros((depth, H, W), dtype=np.uint8)
+    label_3d = np.zeros((depth, H, W), dtype=np.uint8)
 
     for z in sorted_ids:
         index = z - min_z
-        pred_3d[:, :, index] = pred_slices[z]
-        label_3d[:, :, index] = label_slices[z]
+        pred_3d[index:, :] = pred_slices[z]
+        label_3d[index:, :] = label_slices[z]
         
     if args.is_savenii and test_save_path:
-        pred_itk = np.transpose(pred_3d, (2, 0, 1))
-        label_itk = np.transpose(label_3d, (2, 0, 1))
-        
-        pred_itk = sitk.GetImageFromArray(pred_itk.astype(np.float32))
-        label_itk = sitk.GetImageFromArray(label_itk.astype(np.float32))
+        pred_itk = sitk.GetImageFromArray(pred_3d.astype(np.float32))
+        label_itk = sitk.GetImageFromArray(label_3d.astype(np.float32))
         
         spacing = (0.375, 0.375, args.z_spacing)
         pred_itk.SetSpacing(spacing)
