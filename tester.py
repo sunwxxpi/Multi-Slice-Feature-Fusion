@@ -13,7 +13,8 @@ def compute_dice_coefficient(mask_gt, mask_pred):
     volume_sum = mask_gt.sum() + mask_pred.sum()
     if volume_sum == 0:
         return np.NaN
-    return 2 * (mask_gt & mask_pred).sum() / volume_sum
+    volume_intersect = (mask_gt & mask_pred).sum()
+    return 2 * volume_intersect / volume_sum
 
 def compute_average_precision(mask_gt, mask_pred):
     precision, recall, _ = precision_recall_curve(mask_gt.flatten(), mask_pred.flatten())
@@ -24,8 +25,9 @@ def compute_hausdorff_distance(mask_gt, mask_pred):
     pred_points = np.transpose(np.nonzero(mask_pred))
     if len(gt_points) == 0 or len(pred_points) == 0:
         return np.NaN
-    return max(directed_hausdorff(gt_points, pred_points)[0],
-               directed_hausdorff(pred_points, gt_points)[0])
+    hd_1 = directed_hausdorff(gt_points, pred_points)[0]
+    hd_2 = directed_hausdorff(pred_points, gt_points)[0]
+    return max(hd_1, hd_2)
 
 def calculate_metric_percase(pred, gt):
     pred[pred > 0] = 1
@@ -33,14 +35,14 @@ def calculate_metric_percase(pred, gt):
 
     if gt.sum() == 0 and pred.sum() == 0:
         return 1, 1, 0
-    if gt.sum() == 0:
+    elif gt.sum() == 0 and pred.sum() > 0:
         return 0, 0, np.NaN
-    
-    return (
-        compute_dice_coefficient(gt, pred),
-        compute_average_precision(gt, pred),
-        compute_hausdorff_distance(gt, pred)
-    )
+    else:
+        return (
+            compute_dice_coefficient(gt, pred),
+            compute_average_precision(gt, pred),
+            compute_hausdorff_distance(gt, pred)
+        )
 
 def process_slice(slice_2d, model, patch_size):
     x, y = slice_2d.shape
