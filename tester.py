@@ -197,11 +197,10 @@ def inference(args, model, test_save_path: str = None):
         Resize(output_size=[args.img_size, args.img_size]),
         ToTensor()
     ])
-
     db_test = COCA_dataset(
         base_dir=args.volume_path,
-        split="test",
         list_dir=args.list_dir,
+        split="test",
         transform=test_transform
     )
     testloader = DataLoader(db_test, batch_size=1, shuffle=False, num_workers=1)
