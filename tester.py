@@ -5,43 +5,8 @@ import SimpleITK as sitk
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
-from sklearn.metrics import precision_recall_curve, auc
-from scipy.spatial.distance import directed_hausdorff
+from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric
 from datasets.dataset import COCA_dataset, Resize, ToTensor
-
-def compute_dice_coefficient(mask_gt: np.ndarray, mask_pred: np.ndarray) -> float:
-    volume_sum = mask_gt.sum() + mask_pred.sum()
-    if volume_sum == 0:
-        return np.NaN
-    volume_intersect = (mask_gt & mask_pred).sum()
-    return 2 * volume_intersect / volume_sum
-
-def compute_average_precision(mask_gt: np.ndarray, mask_pred: np.ndarray) -> float:
-    precision, recall, _ = precision_recall_curve(mask_gt.flatten(), mask_pred.flatten())
-    return auc(recall, precision)
-
-def compute_hausdorff_distance(mask_gt: np.ndarray, mask_pred: np.ndarray) -> float:
-    gt_points = np.transpose(np.nonzero(mask_gt))
-    pred_points = np.transpose(np.nonzero(mask_pred))
-    if len(gt_points) == 0 or len(pred_points) == 0:
-        return np.NaN
-    hd_forward = directed_hausdorff(gt_points, pred_points)[0]
-    hd_backward = directed_hausdorff(pred_points, gt_points)[0]
-    return max(hd_forward, hd_backward)
-
-def calculate_metrics(pred: np.ndarray, gt: np.ndarray) -> tuple:
-    pred_binary = (pred > 0).astype(np.uint8)
-    gt_binary = (gt > 0).astype(np.uint8)
-
-    if gt_binary.sum() == 0 and pred_binary.sum() == 0:
-        return 1.0, 1.0, 0.0
-    elif gt_binary.sum() == 0 and pred_binary.sum() > 0:
-        return 0.0, 0.0, np.NaN
-    else:
-        dice = compute_dice_coefficient(gt_binary, pred_binary)
-        m_ap = compute_average_precision(gt_binary, pred_binary)
-        hd = compute_hausdorff_distance(gt_binary, pred_binary)
-        return dice, m_ap, hd
 
 def parse_case_and_slice_id(full_name: str) -> tuple:
     if '_slice' in full_name:
@@ -50,7 +15,6 @@ def parse_case_and_slice_id(full_name: str) -> tuple:
     else:
         case_id = full_name
         slice_id = 0
-        
     return case_id, slice_id
 
 def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torch.nn.Module) -> tuple:
@@ -61,7 +25,7 @@ def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torc
 
     model.eval()
     with torch.no_grad():
-        input_tensor = torch.from_numpy(image_np).unsqueeze(0).float().cuda()
+        input_tensor = image.float().cuda()
         logits = model(input_tensor)
         pred_2d = torch.argmax(torch.softmax(logits, dim=1), dim=1).squeeze(0).cpu().numpy()
 
@@ -91,8 +55,8 @@ def build_3d_volume(pred_slices: dict, label_slices: dict, case_id, args, test_s
 
     for z in sorted_ids:
         index = z - min_z
-        pred_3d[index:, :] = pred_slices[z]
-        label_3d[index:, :] = label_slices[z]
+        pred_3d[index, :, :] = pred_slices[z]
+        label_3d[index, :, :] = label_slices[z]
         
     if args.is_savenii and test_save_path:
         pred_itk = sitk.GetImageFromArray(pred_3d.astype(np.float32))
@@ -107,87 +71,68 @@ def build_3d_volume(pred_slices: dict, label_slices: dict, case_id, args, test_s
 
     return pred_3d, label_3d
 
-def compute_metrics_3d(pred_3d, label_3d, num_classes, case_id):
+def compute_metrics_3d(pred_3d, label_3d, num_classes, dice_metric, miou_metric, hd_metric, case_id):
+    pred_tensor = torch.from_numpy(pred_3d).unsqueeze(0).unsqueeze(0).float().cuda()
+    label_tensor = torch.from_numpy(label_3d).unsqueeze(0).unsqueeze(0).float().cuda()
+    
     metrics_per_class = []
     
+    logging.info(f"Metrics for Case: {case_id}")
     for c in range(1, num_classes):
-        dice, m_ap, hd = calculate_metrics(pred_3d == c, label_3d == c)
-        metrics_per_class.append((dice, m_ap, hd))
+        pred_class = (pred_tensor == c).float()
+        label_class = (label_tensor == c).float()
+        
+        dice = dice_metric(pred_class, label_class)
+        miou = miou_metric(pred_class, label_class)
+        hd = hd_metric(pred_class, label_class)
+        
+        if isinstance(hd, torch.Tensor):
+            hd_value = hd.item()
+        else:
+            hd_value = hd
 
+        gt_sum = label_class.sum()
+        pred_sum = pred_class.sum()
+
+        if gt_sum == 0 and pred_sum > 0:
+            hd_value = np.nan
+            status = "(GT==0 & Pred>0)"
+        elif gt_sum == 0 and pred_sum == 0:
+            status = "(GT==0 & Pred==0)"
+        elif gt_sum > 0 and pred_sum == 0:
+            hd_value = np.nan
+            status = "(GT>0 & Pred==0)"
+        else:
+            status = "(GT>0 & Pred>0)"
+
+        if np.isnan(hd_value):
+            logging.info(f"  Class {c}: Dice: {dice.item():.4f}, mIoU: {miou.item():.4f}, HD: {hd_value} {status}")
+        else:
+            logging.info(f"  Class {c}: Dice: {dice.item():.4f}, mIoU: {miou.item():.4f}, HD: {hd_value:.2f} {status}")
+        
+        metrics_per_class.append((dice.item(), miou.item(), hd_value))
+    
     metrics_per_class = np.array(metrics_per_class)
     mean_dice = np.nanmean(metrics_per_class[:, 0])
-    mean_map = np.nanmean(metrics_per_class[:, 1])
+    mean_iou = np.nanmean(metrics_per_class[:, 1])
     mean_hd = np.nanmean(metrics_per_class[:, 2])
-
-    logging.info(f"{case_id} - Dice: {mean_dice:.4f}, mAP: {mean_map:.4f}, HD95: {mean_hd:.2f}")
-
+    
+    logging.info(f"  [Case {case_id}] - Mean Dice: {mean_dice:.4f}, Mean mIoU: {mean_iou:.4f}, Mean HD: {mean_hd:.2f}\n")
+    
     return metrics_per_class
 
 def log_3d_metrics(metric_array, num_classes):
-    mean_dice_all = np.nanmean(metric_array[:, :, 0])
-    mean_map_all = np.nanmean(metric_array[:, :, 1])
-    mean_hd_all = np.nanmean(metric_array[:, :, 2])
-
-    logging.info("\n")
+    logging.info("\nOverall 3D Metrics Across All Cases:")
     for c_idx in range(1, num_classes):
         dice_c = np.nanmean(metric_array[:, c_idx-1, 0])
-        map_c = np.nanmean(metric_array[:, c_idx-1, 1])
+        miou_c = np.nanmean(metric_array[:, c_idx-1, 1])
         hd_c = np.nanmean(metric_array[:, c_idx-1, 2])
-        logging.info(f"[3D] Class {c_idx} - Dice: {dice_c:.4f}, mAP: {map_c:.4f}, HD95: {hd_c:.2f}")
+        logging.info(f"  [3D] Class {c_idx} - Dice: {dice_c:.4f}, mIoU: {miou_c:.4f}, HD: {hd_c:.2f}")
 
-    logging.info(f"[3D] Testing performance - Mean Dice: {mean_dice_all:.4f}, Mean mAP: {mean_map_all:.4f}, Mean HD95: {mean_hd_all:.2f}")
-    logging.info("\n")
-
-def compute_metrics_2d(pred_slices, label_slices, num_classes, mode="LesionOnly"):
-    slice_metrics = {c: [] for c in range(1, num_classes)}
-    valid_slices = 0
-
-    for case_id in pred_slices.keys():
-        for slice_id in sorted(pred_slices[case_id].keys()):
-            pred_2d = pred_slices[case_id][slice_id]
-            label_2d = label_slices[case_id][slice_id]
-
-            if mode == "LesionOnly" and not np.any(label_2d > 0):
-                continue
-            elif mode == "LesionAny" and not np.any(label_2d > 0):
-                continue
-
-            valid_slices += 1
-
-            for c in range(1, num_classes):
-                gt_mask = (label_2d == c)
-                if mode == "LesionOnly" and gt_mask.sum() == 0:
-                    continue
-
-                pr_mask = (pred_2d == c)
-                dice, m_ap, _ = calculate_metrics(pr_mask, gt_mask)
-                slice_metrics[c].append((dice, m_ap))
-                
-    return slice_metrics
-
-def log_2d_metrics(slice_metrics, mode):
-    all_classes_dice = []
-    all_classes_map = []
-    
-    for c, metrics in slice_metrics.items():
-        metrics = np.array(metrics)
-        if metrics.size == 0:
-            logging.info(f"[2D, {mode}] Class {c}: no relevant slices found.")
-            continue
-
-        dice_mean = np.nanmean(metrics[:, 0])
-        map_mean = np.nanmean(metrics[:, 1])
-        all_classes_dice.append(dice_mean)
-        all_classes_map.append(map_mean)
-        logging.info(f"[2D, {mode}] (#slices: {len(metrics)}) Class {c} - Dice: {dice_mean:.4f}, mAP: {map_mean:.4f}")
-
-    if all_classes_dice:
-        mean_dice = np.mean(all_classes_dice)
-        mean_map = np.mean(all_classes_map)
-        logging.info(f"[2D, {mode}] Testing performance - Mean Dice: {mean_dice:.4f}, Mean mAP: {mean_map:.4f}")
-        logging.info(f"\n")
-    else:
-        logging.info(f"[2D, {mode}] No relevant slices found for any class.")
+    mean_dice_all = np.nanmean(metric_array[:, :, 0])
+    mean_miou_all = np.nanmean(metric_array[:, :, 1])
+    mean_hd_all = np.nanmean(metric_array[:, :, 2])
+    logging.info(f"  [3D] Testing Performance - Mean Dice: {mean_dice_all:.4f}, Mean mIoU: {mean_miou_all:.4f}, Mean HD: {mean_hd_all:.2f}")
 
 def inference(args, model, test_save_path: str = None):
     test_transform = T.Compose([
@@ -214,21 +159,19 @@ def inference(args, model, test_save_path: str = None):
         pred_2d, label_2d = run_inference_on_slice(image, label, model)
         accumulate_slice_prediction(pred_slices_dict, label_slices_dict, case_id, slice_id, pred_2d, label_2d)
 
+    dice_metric = DiceMetric(include_background=True, reduction="mean", ignore_empty=True)
+    miou_metric = MeanIoU(include_background=True, reduction="mean", ignore_empty=True)
+    hd_metric = HausdorffDistanceMetric()
+
     metric_list_per_case = []
     
     case_list = sorted(pred_slices_dict.keys())
     for case_id in case_list:
         pred_3d, label_3d = build_3d_volume(pred_slices_dict[case_id], label_slices_dict[case_id], case_id, args, test_save_path)
-        metrics_per_case = compute_metrics_3d(pred_3d, label_3d, args.num_classes, case_id)
+        metrics_per_case = compute_metrics_3d(pred_3d, label_3d, args.num_classes, dice_metric, miou_metric, hd_metric, case_id)
         metric_list_per_case.append(metrics_per_case)
 
     metric_array = np.array(metric_list_per_case)
     log_3d_metrics(metric_array, args.num_classes)
-
-    lesion_only_metrics = compute_metrics_2d(pred_slices_dict, label_slices_dict, args.num_classes, mode="LesionOnly")
-    log_2d_metrics(lesion_only_metrics, mode="LesionOnly")
-
-    lesion_any_metrics = compute_metrics_2d(pred_slices_dict, label_slices_dict, args.num_classes, mode="LesionAny")
-    log_2d_metrics(lesion_any_metrics, mode="LesionAny")
 
     return "Testing Finished!"
