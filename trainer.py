@@ -25,28 +25,20 @@ def trainer_coca(args, model, snapshot_path):
     num_classes = args.num_classes
     batch_size = args.batch_size
     
-    train_transform = T.Compose([
-            RandomAugmentation(),
-            Resize(output_size=[args.img_size, args.img_size]),
-            ToTensor()
-        ])
-    db_train = COCA_dataset(
-        base_dir=args.root_path,
-        list_dir=args.list_dir,
-        split="train",
-        transform=train_transform
-    )
+    train_transform = T.Compose([RandomAugmentation(),
+                                 Resize(output_size=[args.img_size, args.img_size]),
+                                 ToTensor()])
+    db_train = COCA_dataset(base_dir=args.root_path,
+                            list_dir=args.list_dir,
+                            split="train",
+                            transform=train_transform)
     
-    val_transform = T.Compose([
-        Resize(output_size=[args.img_size, args.img_size]),
-        ToTensor()
-    ])
-    db_val = COCA_dataset(
-        base_dir=args.root_path,
-        list_dir=args.list_dir,
-        split="val",
-        transform=val_transform
-    )
+    val_transform = T.Compose([Resize(output_size=[args.img_size, args.img_size]), 
+                               ToTensor()])
+    db_val = COCA_dataset(base_dir=args.root_path,
+                          list_dir=args.list_dir,
+                          split="val",
+                          transform=val_transform)
 
     print("The length of train set is: {}".format(len(db_train)))
     print("The length of validation set is: {}".format(len(db_val)))
@@ -133,7 +125,6 @@ def trainer_coca(args, model, snapshot_path):
         writer.add_scalar('train/train_loss', train_loss, epoch_num)
         logging.info('Train - epoch %d - train_dice_loss: %f, train_ce_loss: %f, train_loss: %f' % (epoch_num, train_dice_loss, train_ce_loss, train_loss))
 
-        # Validation step after each epoch
         val_dice_loss = 0.0
         val_ce_loss = 0.0
         val_loss = 0.0
@@ -154,7 +145,6 @@ def trainer_coca(args, model, snapshot_path):
                 val_ce_loss += ce_loss.item()
                 val_loss += loss.item()
 
-        # Epoch별 평균 validation 손실 계산 및 기록
         val_dice_loss /= len(valloader)
         val_ce_loss /= len(valloader)
         val_loss /= len(valloader)

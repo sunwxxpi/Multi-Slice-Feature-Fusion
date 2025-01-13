@@ -75,15 +75,11 @@ def test_single_volume(image, label, model, classes, patch_size, test_save_path=
     return metric_list_3d
 
 def inference(args, model, test_save_path=None):
-    test_transform = T.Compose([
-                            ToTensor()
-                            ])
-    db_test = COCA_dataset(
-                    base_dir=args.volume_path,
-                    list_dir=args.list_dir,
-                    split="test",
-                    transform=test_transform
-                    )
+    test_transform = T.Compose([ToTensor()])
+    db_test = COCA_dataset(base_dir=args.volume_path,
+                           list_dir=args.list_dir,
+                           split="test",
+                           transform=test_transform)
     testloader = DataLoader(db_test, batch_size=1, shuffle=False, num_workers=1)
     logging.info(f"{len(testloader)} test iterations per epoch")
 
@@ -91,11 +87,9 @@ def inference(args, model, test_save_path=None):
 
     for sampled_batch in testloader:
         image, label, case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
-        metrics_3d = test_single_volume(
-                                image, label, model, 
-                                args.num_classes, [args.img_size, args.img_size], 
-                                test_save_path, case_name, args.z_spacing
-                                )
+        metrics_3d = test_single_volume(image, label, model, 
+                                        args.num_classes, [args.img_size, args.img_size], 
+                                        test_save_path, case_name, args.z_spacing)
 
         metrics_3d_all.append(metrics_3d)
 
