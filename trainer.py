@@ -24,30 +24,20 @@ def trainer_coca(args, model, snapshot_path):
     base_lr = args.base_lr
     batch_size = args.batch_size
     
-    # Train transform: Random augmentation, Resize, ToTensor (3-slice 기준)
-    train_transform = T.Compose([
-            RandomAugmentation(),
-            Resize(output_size=[args.img_size, args.img_size]),
-            ToTensor()
-        ])
-    db_train = COCA_dataset(
-        base_dir=args.root_path,
-        list_dir=args.list_dir,
-        split="train",
-        transform=train_transform
-    )
+    train_transform = T.Compose([RandomAugmentation(),
+                                 Resize(output_size=[args.img_size, args.img_size]),
+                                 ToTensor()])
+    db_train = COCA_dataset(base_dir=args.root_path,
+                            list_dir=args.list_dir,
+                            split="train",
+                            transform=train_transform)
     
-    # Validation transform: 단순 Resize 및 ToTensor
-    val_transform = T.Compose([
-        Resize(output_size=[args.img_size, args.img_size]),
-        ToTensor()
-    ])
-    db_val = COCA_dataset(
-        base_dir=args.root_path,
-        list_dir=args.list_dir,
-        split="val",
-        transform=val_transform
-    )
+    val_transform = T.Compose([Resize(output_size=[args.img_size, args.img_size]),
+                               ToTensor()])
+    db_val = COCA_dataset(base_dir=args.root_path,
+                          list_dir=args.list_dir,
+                          split="val",
+                          transform=val_transform)
 
     print("The length of train set is: {}".format(len(db_train)))
     print("The length of validation set is: {}".format(len(db_val)))
@@ -55,7 +45,6 @@ def trainer_coca(args, model, snapshot_path):
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
 
-    # trainloader에서 shuffle=False지만, collate_fn=shuffle_within_batch로 batch 내 순서 랜덤화
     trainloader = DataLoader(db_train, batch_size=batch_size, shuffle=False, 
                              num_workers=8, pin_memory=True, worker_init_fn=worker_init_fn, 
                              collate_fn=shuffle_within_batch)
@@ -68,6 +57,7 @@ def trainer_coca(args, model, snapshot_path):
     
     dice_loss_class = DiceLoss()
     ce_loss_class = CrossEntropyLoss()
+    # optimizer = optim.SGD(model.parameters(), lr=base_lr, weight_decay=3e-5, momentum=0.99, nesterov=True)
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
     
     max_iterations = args.max_epochs * len(trainloader)

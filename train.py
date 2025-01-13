@@ -35,18 +35,14 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
-    net = smp.Unet(
-            encoder_name=args.encoder,
-            encoder_weights="imagenet",
-            in_channels=1,
-            classes=args.num_classes,
-            ).cuda()
+    net = smp.Unet(encoder_name=args.encoder,
+                   encoder_weights="imagenet",
+                   in_channels=1,
+                   classes=args.num_classes).cuda()
     
     """ from torchinfo import summary
-    torchinfo_summary = str(summary(net, 
-                                    input_size=(args.batch_size, 1, args.img_size, args.img_size), 
-                                    col_width=20, 
-                                    depth=5, 
+    torchinfo_summary = str(summary(net, input_size=(args.batch_size, 1, args.img_size, args.img_size), 
+                                    col_width=20, depth=5, 
                                     row_settings=["depth", "var_names"], 
                                     col_names=["input_size", "kernel_size", "output_size", "params_percent"]))
     output_file = "model_summary.txt"
