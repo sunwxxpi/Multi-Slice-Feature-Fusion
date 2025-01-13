@@ -136,20 +136,18 @@ def log_3d_metrics(metric_array, num_classes):
 
 def inference(args, model, test_save_path: str = None):
     test_transform = T.Compose([
-        Resize(output_size=[args.img_size, args.img_size]),
-        ToTensor()
-    ])
+                            Resize(output_size=[args.img_size, args.img_size]),
+                            ToTensor()
+                            ])
     db_test = COCA_dataset(
-        base_dir=args.volume_path,
-        list_dir=args.list_dir,
-        split="test",
-        transform=test_transform
-    )
+                    base_dir=args.root_path,
+                    list_dir=args.list_dir,
+                    split="test",
+                    transform=test_transform
+                    )
     testloader = DataLoader(db_test, batch_size=1, shuffle=False, num_workers=1)
     logging.info(f"{len(testloader)} test iterations per epoch")
 
-    model.eval()
-    
     pred_slices_dict = {}
     label_slices_dict = {}
 

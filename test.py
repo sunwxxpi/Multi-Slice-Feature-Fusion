@@ -12,7 +12,7 @@ from tester import inference
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='COCA', help='dataset name')
-parser.add_argument('--volume_path', type=str, default='/home/psw/AVS-Diagnosis/COCA_3frames/test_npz', help='root dir for validation volume data')
+parser.add_argument('--root_path', type=str, default='/home/psw/AVS-Diagnosis/COCA_3frames/test_npz', help='root dir for validation volume data')
 parser.add_argument('--list_dir', type=str, default='/home/psw/AVS-Diagnosis/COCA_3frames/lists_COCA', help='list dir')
 parser.add_argument('--num_classes', type=int, default=5, help='output channel of network')
 parser.add_argument('--max_epochs', type=int, default=300, help='maximum epoch number to train')
