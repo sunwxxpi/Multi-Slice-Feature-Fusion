@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 from torch.utils.data.dataloader import default_collate
-from torchvision import transforms as T
 from scipy import ndimage
 from scipy.ndimage import zoom
 from sklearn.model_selection import train_test_split
