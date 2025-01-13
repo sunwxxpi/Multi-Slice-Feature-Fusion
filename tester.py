@@ -153,7 +153,7 @@ def inference(args, model, test_save_path: str = None):
     pred_slices_dict = {}
     label_slices_dict = {}
 
-    for _, sampled_batch in tqdm(enumerate(testloader, start=1), total=len(testloader), desc="Inference"):
+    for sampled_batch in tqdm(testloader, total=len(testloader), desc="Inference"):
         image, label, full_case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
         case_id, slice_id = parse_case_and_slice_id(full_case_name)
         pred_2d, label_2d = run_inference_on_slice(image, label, model)
