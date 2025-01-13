@@ -142,8 +142,10 @@ def inference(args, model, test_save_path=None):
     for sampled_batch in testloader:
         image, label, case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
         metrics_3d, lesiononly_metrics, lesionany_metrics = test_single_volume(
-            image, label, model, args.num_classes, [args.img_size, args.img_size], test_save_path, case_name, args.z_spacing
-        )
+                                                                image, label, model, 
+                                                                args.num_classes, [args.img_size, args.img_size], 
+                                                                test_save_path, case_name, args.z_spacing
+                                                                )
 
         metrics_3d_all.append(metrics_3d)
         for c in range(1, args.num_classes):
