@@ -45,7 +45,7 @@ def process_slice(slice_2d, model, patch_size):
     model.eval()
     with torch.no_grad():
         outputs = model(input_tensor)
-        out_2d = torch.argmax(torch.softmax(outputs, dim=1), dim=1).squeeze(0).cpu().numpy()
+        out_2d = torch.argmax(torch.softmax(outputs[3], dim=1), dim=1).squeeze(0).cpu().numpy()
 
     if (x, y) != tuple(patch_size):
         out_2d = zoom(out_2d, (x / patch_size[0], y / patch_size[1]), order=0)

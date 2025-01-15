@@ -69,3 +69,15 @@ class DiceLoss(nn.Module):
         
         # Background를 제외한 클래스 수로 나눠서 평균 계산
         return loss / (self.n_classes - 1)
+    
+def powerset(seq):
+    """
+    Returns all the subsets of this set. This is a generator.
+    """
+    if len(seq) <= 1:
+        yield seq
+        yield []
+    else:
+        for item in powerset(seq[1:]):
+            yield [seq[0]]+item
+            yield item

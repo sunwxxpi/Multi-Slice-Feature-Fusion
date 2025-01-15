@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 from tqdm import tqdm
-from utils import PolyLRScheduler, DiceLoss
+from utils import powerset, PolyLRScheduler, DiceLoss
 from datasets.dataset import shuffle_within_batch, COCA_dataset, RandomAugmentation, Resize, ToTensor
 
 def trainer_coca(args, model, snapshot_path):
@@ -54,7 +54,6 @@ def trainer_coca(args, model, snapshot_path):
 
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
-    model.train()
     
     dice_loss_class = DiceLoss(num_classes)
     ce_loss_class = CrossEntropyLoss()
@@ -62,7 +61,7 @@ def trainer_coca(args, model, snapshot_path):
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
     
     max_iterations = args.max_epochs * len(trainloader)
-    scheduler = PolyLRScheduler(optimizer, initial_lr=base_lr, max_steps=max_iterations)
+    scheduler = PolyLRScheduler(optimizer, initial_lr=base_lr, max_steps=max_iterations) # TODO: disable scheduler
     
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch. {} max iterations ".format(len(trainloader), max_iterations))
@@ -82,11 +81,47 @@ def trainer_coca(args, model, snapshot_path):
             image_batch, label_batch = sampled_batch['image'], sampled_batch['label']
             image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
 
-            outputs = model(image_batch)
-            
-            dice_loss = dice_loss_class(outputs, label_batch, softmax=True)
-            ce_loss = ce_loss_class(outputs, label_batch)
-            loss = (0.5 * dice_loss) + (0.5 * ce_loss)
+            P = model(image_batch)
+
+            # 모델 출력이 리스트가 아닌 경우 리스트로 변환
+            if not isinstance(P, list):
+                P = [P]
+
+            # 첫 번째 epoch과 batch에서 supervision 설정 초기화
+            if epoch_num == 1 and i_batch == 1:
+                n_outs = len(P)
+                out_idxs = list(range(n_outs))  # [0, 1, 2, 3]
+                
+                if args.supervision == 'mutation':
+                    ss = list(powerset(out_idxs))  # 가능한 모든 출력 조합
+                elif args.supervision == 'deep_supervision':
+                    ss = [[x] for x in out_idxs]  # 각 출력 단계별 독립 학습
+                else:
+                    ss = [[-1]]  # 기본 설정
+                
+                print("Supervision Strategy:", ss)
+
+            # 손실 초기화
+            sum_dice_loss = 0.0
+            sum_ce_loss = 0.0
+            loss = 0.0
+
+            # Supervision 전략에 따른 출력 조합 및 손실 계산
+            for s in ss:
+                if not s:  # 빈 조합은 건너뜀
+                    continue
+                
+                # 선택된 출력 조합 계산
+                iout = sum(P[idx] for idx in s)
+                
+                # Dice Loss와 Cross Entropy Loss 계산
+                dice_loss = dice_loss_class(iout, label_batch, softmax=True)
+                ce_loss = ce_loss_class(iout, label_batch)
+                
+                # 손실 누적
+                sum_dice_loss += dice_loss
+                sum_ce_loss += ce_loss
+                loss += (0.7 * dice_loss) + (0.3 * ce_loss)
             
             optimizer.zero_grad()
             loss.backward()
@@ -97,11 +132,11 @@ def trainer_coca(args, model, snapshot_path):
             
             iter_num += 1
             
-            train_dice_loss += dice_loss.item()
-            train_ce_loss += ce_loss.item()
+            train_dice_loss += sum_dice_loss.item()
+            train_ce_loss += sum_ce_loss.item()
             train_loss += loss.item()
 
-            logging.info('epoch %d, iteration %d - dice_loss: %f, ce_loss: %f, loss_total: %f' % (epoch_num, iter_num, dice_loss.item(), ce_loss.item(), loss.item()))
+            logging.info('epoch %d, iteration %d - dice_loss: %f, ce_loss: %f, loss_total: %f' % (epoch_num, iter_num, sum_dice_loss.item(), sum_ce_loss.item(), loss.item()))
             
             if iter_num % 50 == 0:
                 image = image_batch[1, 0:1, :, :]
@@ -109,7 +144,7 @@ def trainer_coca(args, model, snapshot_path):
                 
                 writer.add_image('train/Image', image, iter_num)
                 
-                outputs = torch.argmax(torch.softmax(outputs, dim=1), dim=1, keepdim=True)
+                outputs = torch.argmax(torch.softmax(P[3], dim=1), dim=1, keepdim=True)
                 writer.add_image('train/Prediction', outputs[1, ...] * 50, iter_num)
 
                 labels = label_batch[1, ...].unsqueeze(0) * 50
@@ -135,16 +170,53 @@ def trainer_coca(args, model, snapshot_path):
                 image_batch, label_batch = sampled_batch['image'], sampled_batch['label']
                 image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
                 
-                outputs = model(image_batch)
+                P = model(image_batch)
+
+                # 모델 출력이 리스트가 아닌 경우 리스트로 변환
+                if not isinstance(P, list):
+                    P = [P]
+
+                # 첫 번째 epoch과 batch에서 supervision 설정 초기화
+                if epoch_num == 1 and i_batch == 1:
+                    n_outs = len(P)
+                    out_idxs = list(range(n_outs))  # [0, 1, 2, 3]
+                    
+                    if args.supervision == 'mutation':
+                        ss = list(powerset(out_idxs))  # 가능한 모든 출력 조합
+                    elif args.supervision == 'deep_supervision':
+                        ss = [[x] for x in out_idxs]  # 각 출력 단계별 독립 학습
+                    else:
+                        ss = [[-1]]  # 기본 설정
+                    
+                    print("Supervision Strategy:", ss)
+
+                # 손실 초기화
+                loss = 0.0
+                sum_dice_loss = 0.0
+                sum_ce_loss = 0.0
+
+                # Supervision 전략에 따른 출력 조합 및 손실 계산
+                for s in ss:
+                    if not s:  # 빈 조합은 건너뜀
+                        continue
+                    
+                    # 선택된 출력 조합 계산
+                    iout = sum(P[idx] for idx in s)
+                    
+                    # Dice Loss와 Cross Entropy Loss 계산
+                    dice_loss = dice_loss_class(iout, label_batch, softmax=True)
+                    ce_loss = ce_loss_class(iout, label_batch)
+                    
+                    # 손실 누적
+                    sum_dice_loss += dice_loss
+                    sum_ce_loss += ce_loss
+                    loss += (0.7 * dice_loss) + (0.3 * ce_loss)
                 
-                dice_loss = dice_loss_class(outputs, label_batch, softmax=True)
-                ce_loss = ce_loss_class(outputs, label_batch)
-                loss = (0.5 * dice_loss) + (0.5 * ce_loss)
-                
-                val_dice_loss += dice_loss.item()
-                val_ce_loss += ce_loss.item()
+                val_dice_loss += sum_dice_loss.item()
+                val_ce_loss += sum_ce_loss.item()
                 val_loss += loss.item()
 
+        # Epoch별 평균 validation 손실 계산 및 기록
         val_dice_loss /= len(valloader)
         val_ce_loss /= len(valloader)
         val_loss /= len(valloader)
