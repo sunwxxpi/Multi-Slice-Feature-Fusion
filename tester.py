@@ -123,15 +123,26 @@ def compute_metrics_3d(pred_3d, label_3d, num_classes, dice_metric, miou_metric,
 
 def log_3d_metrics(metric_array, num_classes):
     logging.info("\nOverall 3D Metrics Across All Cases:")
+
+    class_dice_means = []
+    class_miou_means = []
+    class_hd_means = []
+
     for c_idx in range(1, num_classes):
         dice_c = np.nanmean(metric_array[:, c_idx-1, 0])
         miou_c = np.nanmean(metric_array[:, c_idx-1, 1])
         hd_c = np.nanmean(metric_array[:, c_idx-1, 2])
+
         logging.info(f"  [3D] Class {c_idx} - Dice: {dice_c:.4f}, mIoU: {miou_c:.4f}, HD: {hd_c:.2f}")
 
-    mean_dice_all = np.nanmean(metric_array[:, :, 0])
-    mean_miou_all = np.nanmean(metric_array[:, :, 1])
-    mean_hd_all = np.nanmean(metric_array[:, :, 2])
+        class_dice_means.append(dice_c)
+        class_miou_means.append(miou_c)
+        class_hd_means.append(hd_c)
+
+    mean_dice_all = np.nanmean(class_dice_means)
+    mean_miou_all = np.nanmean(class_miou_means)
+    mean_hd_all = np.nanmean(class_hd_means)
+
     logging.info(f"  [3D] Testing Performance - Mean Dice: {mean_dice_all:.4f}, Mean mIoU: {mean_miou_all:.4f}, Mean HD: {mean_hd_all:.2f}")
 
 def inference(args, model, test_save_path: str = None):
@@ -155,7 +166,7 @@ def inference(args, model, test_save_path: str = None):
 
     dice_metric = DiceMetric(include_background=True, reduction="mean", ignore_empty=True)
     miou_metric = MeanIoU(include_background=True, reduction="mean", ignore_empty=True)
-    hd_metric = HausdorffDistanceMetric()
+    hd_metric = HausdorffDistanceMetric(include_background=True, distance_metric="euclidean", percentile=95)
 
     metric_list_per_case = []
     
