@@ -5,35 +5,8 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 from scipy.ndimage import zoom
-from scipy.spatial.distance import directed_hausdorff
+from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric
 from datasets.dataset import COCA_dataset, ToTensor
-
-def compute_dice_coefficient(mask_gt, mask_pred):
-    volume_sum = mask_gt.sum() + mask_pred.sum()
-    if volume_sum == 0:
-        return np.NaN
-    volume_intersect = (mask_gt & mask_pred).sum()
-    return 2 * volume_intersect / volume_sum
-
-def compute_hausdorff_distance(mask_gt, mask_pred):
-    gt_points = np.transpose(np.nonzero(mask_gt))
-    pred_points = np.transpose(np.nonzero(mask_pred))
-    if len(gt_points) == 0 or len(pred_points) == 0:
-        return np.NaN
-    hd_1 = directed_hausdorff(gt_points, pred_points)[0]
-    hd_2 = directed_hausdorff(pred_points, gt_points)[0]
-    return max(hd_1, hd_2)
-
-def calculate_metric_percase(pred, gt):
-    pred[pred > 0] = 1
-    gt[gt > 0] = 1
-
-    if gt.sum() == 0 and pred.sum() == 0:
-        return np.NaN, 0
-    elif gt.sum() == 0 and pred.sum() > 0:
-        return 0, np.NaN
-    else:
-        return (compute_dice_coefficient(gt, pred), compute_hausdorff_distance(gt, pred))
 
 def process_slice(slice_2d, model, patch_size):
     x, y = slice_2d.shape
@@ -52,7 +25,7 @@ def process_slice(slice_2d, model, patch_size):
 
     return out_2d
 
-def test_single_volume(image, label, model, classes, patch_size, test_save_path=None, case=None, z_spacing=1):
+def test_single_volume(image, label, model, classes, patch_size, dice_metric, miou_metric, hd_metric, test_save_path=None, case=None, z_spacing=1):
     image_np, label_np = image.squeeze().cpu().detach().numpy(), label.squeeze().cpu().detach().numpy()
     D, H, W = image_np.shape
     prediction_3d = np.zeros_like(label_np, dtype=np.uint8)
@@ -62,10 +35,44 @@ def test_single_volume(image, label, model, classes, patch_size, test_save_path=
         out_2d = process_slice(slice_2d, model, patch_size)
         prediction_3d[d] = out_2d
 
-    metric_list_3d = [
-        calculate_metric_percase((prediction_3d == c).astype(np.uint8), (label_np == c).astype(np.uint8))
-        for c in range(1, classes)
-    ]
+    metrics_per_class = []
+
+    logging.info(f"Metrics for Case: {case}")
+    for c in range(1, classes):
+        pred_class = (prediction_3d == c).astype(np.uint8)
+        label_class = (label_np == c).astype(np.uint8)
+
+        pred_tensor = torch.from_numpy(pred_class).unsqueeze(0).unsqueeze(0).float().cuda()
+        label_tensor = torch.from_numpy(label_class).unsqueeze(0).unsqueeze(0).float().cuda()
+
+        dice = dice_metric(pred_tensor, label_tensor)
+        miou = miou_metric(pred_tensor, label_tensor)
+        hd = hd_metric(pred_tensor, label_tensor)
+
+        dice_val = dice.item()
+        miou_val = miou.item()
+        hd_val = hd.item() if not isinstance(hd, torch.Tensor) else hd.item()
+
+        gt_sum = label_class.sum()
+        pred_sum = pred_class.sum()
+
+        if gt_sum == 0 and pred_sum > 0:
+            hd_val = np.nan
+            status = "(GT==0 & Pred>0)"
+        elif gt_sum == 0 and pred_sum == 0:
+            status = "(GT==0 & Pred==0)"
+        elif gt_sum > 0 and pred_sum == 0:
+            hd_val = np.nan
+            status = "(GT>0 & Pred==0)"
+        else:
+            status = "(GT>0 & Pred>0)"
+
+        if np.isnan(hd_val):
+            logging.info(f"  Class {c}: Dice: {dice_val:.4f}, mIoU: {miou_val:.4f}, HD: {hd_val} {status}")
+        else:
+            logging.info(f"  Class {c}: Dice: {dice_val:.4f}, mIoU: {miou_val:.4f}, HD: {hd_val:.2f} {status}")
+
+        metrics_per_class.append((dice_val, miou_val, hd_val))
 
     if test_save_path and case:
         for array, suffix in zip([image_np, prediction_3d, label_np], ["img", "pred", "gt"]):
@@ -73,7 +80,7 @@ def test_single_volume(image, label, model, classes, patch_size, test_save_path=
             itk_img.SetSpacing((0.375, 0.375, z_spacing))
             sitk.WriteImage(itk_img, f"{test_save_path}/{case}_{suffix}.nii.gz")
 
-    return metric_list_3d
+    return metrics_per_class
 
 def inference(args, model, test_save_path=None):
     test_transform = T.Compose([ToTensor()])
@@ -84,26 +91,50 @@ def inference(args, model, test_save_path=None):
     testloader = DataLoader(db_test, batch_size=1, shuffle=False, num_workers=1)
     logging.info(f"{len(testloader)} test iterations per epoch")
 
+    dice_metric = DiceMetric(include_background=True, reduction="mean", ignore_empty=True)
+    miou_metric = MeanIoU(include_background=True, reduction="mean", ignore_empty=True)
+    hd_metric = HausdorffDistanceMetric(include_background=True, distance_metric="euclidean", percentile=95)
+
     metrics_3d_all = []
 
     for sampled_batch in testloader:
         image, label, case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
         metrics_3d = test_single_volume(image, label, model, 
                                         args.num_classes, [args.img_size, args.img_size], 
+                                        dice_metric, miou_metric, hd_metric,
                                         test_save_path, case_name, args.z_spacing)
 
         metrics_3d_all.append(metrics_3d)
 
-        logging.info(f"{case_name} - Dice: {np.nanmean(metrics_3d, axis=0)[0]:.4f}, HD95: {np.nanmean(metrics_3d, axis=0)[1]:.2f}")
+        mean_dice = np.nanmean([m[0] for m in metrics_3d])
+        mean_miou = np.nanmean([m[1] for m in metrics_3d])
+        mean_hd = np.nanmean([m[2] for m in metrics_3d])
+
+        logging.info(f"  [Case {case_name}] - Mean Dice: {mean_dice:.4f}, Mean mIoU: {mean_miou:.4f}, Mean HD: {mean_hd:.2f}\n")
 
     metrics_3d_array = np.array(metrics_3d_all)
 
-    logging.info(f"\n")
-    for c in range(1, args.num_classes):
-        class_metrics = metrics_3d_array[:, c - 1]
-        logging.info(f"[3D] Class {c} - Dice: {np.nanmean(class_metrics[:, 0]):.4f}, HD95: {np.nanmean(class_metrics[:, 1]):.2f}")
+    logging.info("\nOverall 3D Metrics Across All Cases:")
 
-    logging.info(f"[3D] Mean Dice: {np.nanmean(metrics_3d_array[:, :, 0]):.4f}, Mean HD95: {np.nanmean(metrics_3d_array[:, :, 1]):.2f}")
-    logging.info(f"\n")
+    class_dice_means = []
+    class_miou_means = []
+    class_hd_means = []
+
+    for c_idx in range(1, args.num_classes):
+        dice_c = np.nanmean(metrics_3d_array[:, c_idx-1, 0])
+        miou_c = np.nanmean(metrics_3d_array[:, c_idx-1, 1])
+        hd_c = np.nanmean(metrics_3d_array[:, c_idx-1, 2])
+
+        logging.info(f"  [3D] Class {c_idx} - Dice: {dice_c:.4f}, mIoU: {miou_c:.4f}, HD: {hd_c:.2f}")
+
+        class_dice_means.append(dice_c)
+        class_miou_means.append(miou_c)
+        class_hd_means.append(hd_c)
+
+    mean_dice_all = np.nanmean(class_dice_means)
+    mean_miou_all = np.nanmean(class_miou_means)
+    mean_hd_all = np.nanmean(class_hd_means)
+
+    logging.info(f"  [3D] Testing Performance - Mean Dice: {mean_dice_all:.4f}, Mean mIoU: {mean_miou_all:.4f}, Mean HD: {mean_hd_all:.2f}")
 
     return "Testing Finished!"
