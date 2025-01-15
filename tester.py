@@ -27,7 +27,7 @@ def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torc
     with torch.no_grad():
         input_tensor = image.float().cuda()
         logits = model(input_tensor)
-        pred_2d = torch.argmax(torch.softmax(logits, dim=1), dim=1).squeeze(0).cpu().numpy()
+        pred_2d = torch.argmax(torch.softmax(logits[3], dim=1), dim=1).squeeze(0).cpu().numpy()
 
     prediction = pred_2d.astype(np.uint8)
     label_slice = label_np.astype(np.uint8)

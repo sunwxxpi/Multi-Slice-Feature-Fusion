@@ -6,8 +6,8 @@ import logging
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
-import segmentation_models_pytorch as smp
 from glob import glob
+from networks.emcad.networks import EMCADNet
 from tester import inference
 
 parser = argparse.ArgumentParser()
@@ -25,6 +25,27 @@ parser.add_argument('--deterministic', type=int, default=1, help='whether use de
 parser.add_argument('--seed', type=int, default=42, help='random seed')
 parser.add_argument('--is_savenii', action="store_true", help='whether to save results during inference')
 parser.add_argument('--z_spacing', type=int, default=3, help='z spacing of the volume')
+
+# network related parameters
+parser.add_argument('--encoder', type=str,
+                    default='pvt_v2_b2', help='Name of encoder: pvt_v2_b2, pvt_v2_b0, resnet18, resnet34 ...')
+parser.add_argument('--expansion_factor', type=int,
+                    default=2, help='expansion factor in MSCB block')
+parser.add_argument('--kernel_sizes', type=int, nargs='+',
+                    default=[1, 3, 5], help='multi-scale kernel sizes in MSDC block')
+parser.add_argument('--lgag_ks', type=int,
+                    default=3, help='Kernel size in LGAG')
+parser.add_argument('--activation_mscb', type=str,
+                    default='relu6', help='activation used in MSCB: relu6 or relu')
+parser.add_argument('--no_dw_parallel', action='store_true',
+                    default=False, help='use this flag to disable depth-wise parallel convolutions')
+parser.add_argument('--concatenation', action='store_true',
+                    default=False, help='use this flag to concatenate feature maps in MSDC block')
+parser.add_argument('--no_pretrain', action='store_true',
+                    default=False, help='use this flag to turn off loading pretrained enocder weights')
+parser.add_argument('--supervision', type=str,
+                    default='mutation', help='loss supervision: mutation, deep_supervision or last_layer')
+
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -39,11 +60,16 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
-    
-    net = smp.Unet(encoder_name=args.encoder,
-                   encoder_weights="imagenet",
-                   in_channels=1,
-                   classes=args.num_classes).cuda()
+
+    net = EMCADNet(num_classes=args.num_classes, 
+                   kernel_sizes=args.kernel_sizes, 
+                   expansion_factor=args.expansion_factor, 
+                   dw_parallel=not args.no_dw_parallel, 
+                   add=not args.concatenation, 
+                   lgag_ks=args.lgag_ks, 
+                   activation=args.activation_mscb, 
+                   encoder=args.encoder, 
+                   pretrain=not args.no_pretrain).cuda()
     
     exp_path = os.path.join(net.__class__.__name__ + '_' + args.encoder, args.dataset + '_' + str(args.img_size), args.exp_setting)
     parameter_path = 'epo' + str(args.max_epochs) + '_bs' + str(args.batch_size) + '_lr' + str(args.base_lr)

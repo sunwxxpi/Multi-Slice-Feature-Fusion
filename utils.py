@@ -131,3 +131,15 @@ class FocalLoss(nn.Module):
         else:
             # 'none'인 경우 (N*H*W,) 형태의 텐서 그대로 반환
             return loss
+        
+def powerset(seq):
+    """
+    Returns all the subsets of this set. This is a generator.
+    """
+    if len(seq) <= 1:
+        yield seq
+        yield []
+    else:
+        for item in powerset(seq[1:]):
+            yield [seq[0]]+item
+            yield item
