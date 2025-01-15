@@ -61,7 +61,7 @@ def trainer_coca(args, model, snapshot_path):
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
     
     max_iterations = args.max_epochs * len(trainloader)
-    scheduler = PolyLRScheduler(optimizer, initial_lr=base_lr, max_steps=max_iterations) # TODO: disable scheduler
+    scheduler = PolyLRScheduler(optimizer, initial_lr=base_lr, max_steps=max_iterations)
     
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch. {} max iterations ".format(len(trainloader), max_iterations))
