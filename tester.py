@@ -29,7 +29,7 @@ def calculate_metric_percase(pred, gt):
     gt[gt > 0] = 1
 
     if gt.sum() == 0 and pred.sum() == 0:
-        return 1, 0
+        return np.NaN, 0
     elif gt.sum() == 0 and pred.sum() > 0:
         return 0, np.NaN
     else:
@@ -41,6 +41,8 @@ def process_slice(slice_2d, model, patch_size):
         slice_2d = zoom(slice_2d, (patch_size[0] / x, patch_size[1] / y), order=3)
 
     input_tensor = torch.from_numpy(slice_2d).unsqueeze(0).unsqueeze(0).float().cuda()
+
+    model.eval()
     with torch.no_grad():
         outputs = model(input_tensor)
         out_2d = torch.argmax(torch.softmax(outputs, dim=1), dim=1).squeeze(0).cpu().numpy()
@@ -55,7 +57,6 @@ def test_single_volume(image, label, model, classes, patch_size, test_save_path=
     D, H, W = image_np.shape
     prediction_3d = np.zeros_like(label_np, dtype=np.uint8)
 
-    model.eval()
     for d in range(D):
         slice_2d = image_np[d]
         out_2d = process_slice(slice_2d, model, patch_size)

@@ -33,7 +33,7 @@ def trainer_coca(args, model, snapshot_path):
                             split="train",
                             transform=train_transform)
     
-    val_transform = T.Compose([Resize(output_size=[args.img_size, args.img_size]), 
+    val_transform = T.Compose([Resize(output_size=[args.img_size, args.img_size]),
                                ToTensor()])
     db_val = COCA_dataset(base_dir=args.root_path,
                           list_dir=args.list_dir,
