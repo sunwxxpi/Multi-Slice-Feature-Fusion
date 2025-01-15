@@ -54,7 +54,6 @@ def trainer_coca(args, model, snapshot_path):
 
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
-    model.train()
     
     dice_loss_class = DiceLoss(num_classes)
     ce_loss_class = CrossEntropyLoss()
