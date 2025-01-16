@@ -89,30 +89,24 @@ def compute_metrics_3d(pred_3d, label_3d, num_classes, dice_metric, miou_metric,
         hd = hd_metric(pred_class, label_class)
         
         if isinstance(hd, torch.Tensor):
-            hd_value = hd.item()
-        else:
-            hd_value = hd
+            hd = hd.item()
 
         gt_sum = label_class.sum()
         pred_sum = pred_class.sum()
 
-        if gt_sum == 0 and pred_sum > 0:
-            hd_value = np.nan
-            status = "(GT==0 & Pred>0)"
-        elif gt_sum == 0 and pred_sum == 0:
+        if gt_sum == 0 and pred_sum == 0:
             status = "(GT==0 & Pred==0)"
+        elif gt_sum == 0 and pred_sum > 0:
+            status = "(GT==0 & Pred>0)"
         elif gt_sum > 0 and pred_sum == 0:
-            hd_value = np.nan
+            hd = np.nan
             status = "(GT>0 & Pred==0)"
         else:
             status = "(GT>0 & Pred>0)"
 
-        if np.isnan(hd_value):
-            logging.info(f"  Class {c}: Dice: {dice.item():.4f}, mIoU: {miou.item():.4f}, HD: {hd_value} {status}")
-        else:
-            logging.info(f"  Class {c}: Dice: {dice.item():.4f}, mIoU: {miou.item():.4f}, HD: {hd_value:.2f} {status}")
+        logging.info(f"  Class {c}: Dice: {dice.item():.4f}, mIoU: {miou.item():.4f}, HD: {hd:.2f} {status}")
         
-        metrics_per_class.append((dice.item(), miou.item(), hd_value))
+        metrics_per_class.append((dice.item(), miou.item(), hd))
     
     metrics_per_class = np.array(metrics_per_class)
     mean_dice = np.nanmean(metrics_per_class[:, 0])
