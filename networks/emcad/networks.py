@@ -6,9 +6,9 @@ from networks.emcad.pvtv2 import pvt_v2_b0, pvt_v2_b1, pvt_v2_b2, pvt_v2_b3, pvt
 from networks.emcad.decoders import EMCAD
 
 
-class EMCADNet(nn.Module):
+class EMCAD_SA_Net(nn.Module):
     def __init__(self, num_classes=1, kernel_sizes=[1,3,5], expansion_factor=2, dw_parallel=True, add=True, lgag_ks=3, activation='relu', encoder='pvt_v2_b2', pretrain=True):
-        super(EMCADNet, self).__init__()
+        super(EMCAD_SA_Net, self).__init__()
 
         # conv block to convert single channel to 3 channels
         self.conv = nn.Sequential(
@@ -65,10 +65,7 @@ class EMCADNet(nn.Module):
             
         if pretrain==True and 'pvt_v2' in encoder:
             save_model = torch.load(path)
-            model_dict = self.backbone.state_dict()
-            state_dict = {k: v for k, v in save_model.items() if k in model_dict.keys()}
-            model_dict.update(state_dict)
-            self.backbone.load_state_dict(model_dict)
+            self.backbone.load_state_dict(save_model, strict=False)
         
         print('Model %s created, param count: %d' %
                      (encoder+' backbone: ', sum([m.numel() for m in self.backbone.parameters()])))
@@ -85,13 +82,20 @@ class EMCADNet(nn.Module):
         self.out_head1 = nn.Conv2d(channels[3], num_classes, 1)
         
     def forward(self, x):
+        x_prev = x[:, 0:1, :, :]   # (B,1,H,W)
+        x_main = x[:, 1:2, :, :]   # (B,1,H,W)
+        x_next = x[:, 2:3, :, :]   # (B,1,H,W)
         
         # if grayscale input, convert to 3 channels
-        if x.size()[1] == 1:
-            x = self.conv(x)
+        if x_prev.size()[1] == 1:
+            x_prev = self.conv(x_prev)
+        if x_main.size()[1] == 1:
+            x_main = self.conv(x_main)
+        if x_next.size()[1] == 1:
+            x_next = self.conv(x_next)
         
         # encoder
-        x1, x2, x3, x4 = self.backbone(x)
+        x1, x2, x3, x4 = self.backbone(x_prev, x_main, x_next)
 
         # decoder
         dec_outs = self.decoder(x4, [x3, x2, x1])
@@ -111,7 +115,7 @@ class EMCADNet(nn.Module):
 
         
 if __name__ == '__main__':
-    model = EMCADNet().cuda()
+    model = EMCAD_SA_Net().cuda()
     input_tensor = torch.randn(1, 3, 352, 352).cuda()
 
     P = model(input_tensor)

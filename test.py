@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
 from glob import glob
-from networks.emcad.networks import EMCADNet
+from networks.emcad.networks import EMCAD_SA_Net
 from tester import inference
 
 parser = argparse.ArgumentParser()
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
-    net = EMCADNet(num_classes=args.num_classes, 
+    net = EMCAD_SA_Net(num_classes=args.num_classes, 
                    kernel_sizes=args.kernel_sizes, 
                    expansion_factor=args.expansion_factor, 
                    dw_parallel=not args.no_dw_parallel, 
