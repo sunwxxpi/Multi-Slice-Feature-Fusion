@@ -5,6 +5,7 @@ import logging
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.cuda.amp import autocast, GradScaler
 from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -70,6 +71,8 @@ def trainer_coca(args, model, snapshot_path):
     best_val_loss = float('inf')
     best_model_path = None
     
+    scaler = GradScaler()
+    
     for epoch_num in tqdm(range(1, max_epoch + 1), ncols=70):
         train_dice_loss = 0.0
         train_ce_loss = 0.0
@@ -79,52 +82,54 @@ def trainer_coca(args, model, snapshot_path):
         for i_batch, sampled_batch in enumerate(trainloader, start=1):
             image_batch, label_batch = sampled_batch['image'], sampled_batch['label']
             image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
+            
+            with autocast():
+                P = model(image_batch)
 
-            P = model(image_batch)
+                # 모델 출력이 리스트가 아닌 경우 리스트로 변환
+                if not isinstance(P, list):
+                    P = [P]
 
-            # 모델 출력이 리스트가 아닌 경우 리스트로 변환
-            if not isinstance(P, list):
-                P = [P]
+                # 첫 번째 epoch과 batch에서 supervision 설정 초기화
+                if epoch_num == 1 and i_batch == 1:
+                    n_outs = len(P)
+                    out_idxs = list(range(n_outs))  # [0, 1, 2, 3]
+                    
+                    if args.supervision == 'mutation':
+                        ss = list(powerset(out_idxs))  # 가능한 모든 출력 조합
+                    elif args.supervision == 'deep_supervision':
+                        ss = [[x] for x in out_idxs]  # 각 출력 단계별 독립 학습
+                    else:
+                        ss = [[-1]]  # 기본 설정
+                    
+                    print("Supervision Strategy:", ss)
 
-            # 첫 번째 epoch과 batch에서 supervision 설정 초기화
-            if epoch_num == 1 and i_batch == 1:
-                n_outs = len(P)
-                out_idxs = list(range(n_outs))  # [0, 1, 2, 3]
-                
-                if args.supervision == 'mutation':
-                    ss = list(powerset(out_idxs))  # 가능한 모든 출력 조합
-                elif args.supervision == 'deep_supervision':
-                    ss = [[x] for x in out_idxs]  # 각 출력 단계별 독립 학습
-                else:
-                    ss = [[-1]]  # 기본 설정
-                
-                print("Supervision Strategy:", ss)
+                # 손실 초기화
+                sum_dice_loss = 0.0
+                sum_ce_loss = 0.0
+                loss = 0.0
 
-            # 손실 초기화
-            sum_dice_loss = 0.0
-            sum_ce_loss = 0.0
-            loss = 0.0
-
-            # Supervision 전략에 따른 출력 조합 및 손실 계산
-            for s in ss:
-                if not s:  # 빈 조합은 건너뜀
-                    continue
-                
-                # 선택된 출력 조합 계산
-                iout = sum(P[idx] for idx in s)
-                
-                # Dice Loss와 Cross Entropy Loss 계산
-                dice_loss = dice_loss_class(iout, label_batch, softmax=True)
-                ce_loss = ce_loss_class(iout, label_batch)
-                
-                # 손실 누적
-                sum_dice_loss += dice_loss
-                sum_ce_loss += ce_loss
-                loss += (0.7 * dice_loss) + (0.3 * ce_loss)
+                # Supervision 전략에 따른 출력 조합 및 손실 계산
+                for s in ss:
+                    if not s:  # 빈 조합은 건너뜀
+                        continue
+                    
+                    # 선택된 출력 조합 계산
+                    iout = sum(P[idx] for idx in s)
+                    
+                    # Dice Loss와 Cross Entropy Loss 계산
+                    dice_loss = dice_loss_class(iout, label_batch, softmax=True)
+                    ce_loss = ce_loss_class(iout, label_batch)
+                    
+                    # 손실 누적
+                    sum_dice_loss += dice_loss
+                    sum_ce_loss += ce_loss
+                    loss += (0.7 * dice_loss) + (0.3 * ce_loss)
             
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             scheduler.step()
             current_lr = scheduler.optimizer.param_groups[0]['lr']
@@ -169,47 +174,48 @@ def trainer_coca(args, model, snapshot_path):
                 image_batch, label_batch = sampled_batch['image'], sampled_batch['label']
                 image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
                 
-                P = model(image_batch)
+                with autocast():
+                    P = model(image_batch)
 
-                # 모델 출력이 리스트가 아닌 경우 리스트로 변환
-                if not isinstance(P, list):
-                    P = [P]
+                    # 모델 출력이 리스트가 아닌 경우 리스트로 변환
+                    if not isinstance(P, list):
+                        P = [P]
 
-                # 첫 번째 epoch과 batch에서 supervision 설정 초기화
-                if epoch_num == 1 and i_batch == 1:
-                    n_outs = len(P)
-                    out_idxs = list(range(n_outs))  # [0, 1, 2, 3]
-                    
-                    if args.supervision == 'mutation':
-                        ss = list(powerset(out_idxs))  # 가능한 모든 출력 조합
-                    elif args.supervision == 'deep_supervision':
-                        ss = [[x] for x in out_idxs]  # 각 출력 단계별 독립 학습
-                    else:
-                        ss = [[-1]]  # 기본 설정
-                    
-                    print("Supervision Strategy:", ss)
+                    # 첫 번째 epoch과 batch에서 supervision 설정 초기화
+                    if epoch_num == 1 and i_batch == 1:
+                        n_outs = len(P)
+                        out_idxs = list(range(n_outs))  # [0, 1, 2, 3]
+                        
+                        if args.supervision == 'mutation':
+                            ss = list(powerset(out_idxs))  # 가능한 모든 출력 조합
+                        elif args.supervision == 'deep_supervision':
+                            ss = [[x] for x in out_idxs]  # 각 출력 단계별 독립 학습
+                        else:
+                            ss = [[-1]]  # 기본 설정
+                        
+                        print("Supervision Strategy:", ss)
 
-                # 손실 초기화
-                loss = 0.0
-                sum_dice_loss = 0.0
-                sum_ce_loss = 0.0
+                    # 손실 초기화
+                    loss = 0.0
+                    sum_dice_loss = 0.0
+                    sum_ce_loss = 0.0
 
-                # Supervision 전략에 따른 출력 조합 및 손실 계산
-                for s in ss:
-                    if not s:  # 빈 조합은 건너뜀
-                        continue
-                    
-                    # 선택된 출력 조합 계산
-                    iout = sum(P[idx] for idx in s)
-                    
-                    # Dice Loss와 Cross Entropy Loss 계산
-                    dice_loss = dice_loss_class(iout, label_batch, softmax=True)
-                    ce_loss = ce_loss_class(iout, label_batch)
-                    
-                    # 손실 누적
-                    sum_dice_loss += dice_loss
-                    sum_ce_loss += ce_loss
-                    loss += (0.7 * dice_loss) + (0.3 * ce_loss)
+                    # Supervision 전략에 따른 출력 조합 및 손실 계산
+                    for s in ss:
+                        if not s:  # 빈 조합은 건너뜀
+                            continue
+                        
+                        # 선택된 출력 조합 계산
+                        iout = sum(P[idx] for idx in s)
+                        
+                        # Dice Loss와 Cross Entropy Loss 계산
+                        dice_loss = dice_loss_class(iout, label_batch, softmax=True)
+                        ce_loss = ce_loss_class(iout, label_batch)
+                        
+                        # 손실 누적
+                        sum_dice_loss += dice_loss
+                        sum_ce_loss += ce_loss
+                        loss += (0.7 * dice_loss) + (0.3 * ce_loss)
                 
                 val_dice_loss += sum_dice_loss.item()
                 val_ce_loss += sum_ce_loss.item()
