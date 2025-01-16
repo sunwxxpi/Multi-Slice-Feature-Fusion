@@ -2,6 +2,7 @@ import logging
 import numpy as np
 import SimpleITK as sitk
 import torch
+from torch.cuda.amp import autocast
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 from scipy.ndimage import zoom
@@ -17,8 +18,9 @@ def process_slice(slice_2d, model, patch_size):
 
     model.eval()
     with torch.no_grad():
-        outputs = model(input_tensor)
-        out_2d = torch.argmax(torch.softmax(outputs, dim=1), dim=1).squeeze(0).cpu().numpy()
+        with autocast():
+            outputs = model(input_tensor)
+            out_2d = torch.argmax(torch.softmax(outputs, dim=1), dim=1).squeeze(0).cpu().numpy()
 
     if (x, y) != tuple(patch_size):
         out_2d = zoom(out_2d, (x / patch_size[0], y / patch_size[1]), order=0)

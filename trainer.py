@@ -5,8 +5,9 @@ import logging
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.nn.modules.loss import CrossEntropyLoss
+from torch.cuda.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
+from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 from tqdm import tqdm
@@ -71,6 +72,8 @@ def trainer_coca(args, model, snapshot_path):
     best_val_loss = float('inf')
     best_model_path = None
     
+    scaler = GradScaler()
+    
     for epoch_num in tqdm(range(1, max_epoch + 1), ncols=70):
         train_dice_loss = 0.0
         train_ce_loss = 0.0
@@ -80,16 +83,19 @@ def trainer_coca(args, model, snapshot_path):
         for i_batch, sampled_batch in enumerate(trainloader, start=1):
             image_batch, label_batch = sampled_batch['image'], sampled_batch['label']
             image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
-
-            outputs = model(image_batch)
             
-            dice_loss = dice_loss_class(outputs, label_batch, softmax=True)
-            ce_loss = ce_loss_class(outputs, label_batch)
-            loss = (0.5 * dice_loss) + (0.5 * ce_loss)
+            with autocast():
+
+                outputs = model(image_batch)
+                
+                dice_loss = dice_loss_class(outputs, label_batch, softmax=True)
+                ce_loss = ce_loss_class(outputs, label_batch)
+                loss = (0.5 * dice_loss) + (0.5 * ce_loss)
             
             optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             scheduler.step()
             current_lr = scheduler.optimizer.param_groups[0]['lr']
@@ -134,11 +140,12 @@ def trainer_coca(args, model, snapshot_path):
                 image_batch, label_batch = sampled_batch['image'], sampled_batch['label']
                 image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
                 
-                outputs = model(image_batch)
-                
-                dice_loss = dice_loss_class(outputs, label_batch, softmax=True)
-                ce_loss = ce_loss_class(outputs, label_batch)
-                loss = (0.5 * dice_loss) + (0.5 * ce_loss)
+                with autocast():
+                    outputs = model(image_batch)
+                    
+                    dice_loss = dice_loss_class(outputs, label_batch, softmax=True)
+                    ce_loss = ce_loss_class(outputs, label_batch)
+                    loss = (0.5 * dice_loss) + (0.5 * ce_loss)
                 
                 val_dice_loss += dice_loss.item()
                 val_ce_loss += ce_loss.item()
