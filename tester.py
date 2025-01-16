@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import SimpleITK as sitk
 from tqdm import tqdm
+from torch.cuda.amp import autocast
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric
@@ -25,9 +26,10 @@ def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torc
 
     model.eval()
     with torch.no_grad():
-        input_tensor = image.float().cuda()
-        logits = model(input_tensor)
-        pred_2d = torch.argmax(torch.softmax(logits, dim=1), dim=1).squeeze(0).cpu().numpy()
+        with autocast():
+            input_tensor = image.float().cuda()
+            logits = model(input_tensor)
+            pred_2d = torch.argmax(torch.softmax(logits, dim=1), dim=1).squeeze(0).cpu().numpy()
 
     prediction = pred_2d.astype(np.uint8)
     label_slice = label_np.astype(np.uint8)
