@@ -50,31 +50,26 @@ def test_single_volume(image, label, model, classes, patch_size, dice_metric, mi
         dice = dice_metric(pred_tensor, label_tensor)
         miou = miou_metric(pred_tensor, label_tensor)
         hd = hd_metric(pred_tensor, label_tensor)
-
-        dice_val = dice.item()
-        miou_val = miou.item()
-        hd_val = hd.item() if not isinstance(hd, torch.Tensor) else hd.item()
+        
+        if isinstance(hd, torch.Tensor):
+            hd = hd.item()
 
         gt_sum = label_class.sum()
         pred_sum = pred_class.sum()
 
-        if gt_sum == 0 and pred_sum > 0:
-            hd_val = np.nan
-            status = "(GT==0 & Pred>0)"
-        elif gt_sum == 0 and pred_sum == 0:
+        if gt_sum == 0 and pred_sum == 0:
             status = "(GT==0 & Pred==0)"
+        elif gt_sum == 0 and pred_sum > 0:
+            status = "(GT==0 & Pred>0)"
         elif gt_sum > 0 and pred_sum == 0:
-            hd_val = np.nan
+            hd = np.nan
             status = "(GT>0 & Pred==0)"
         else:
             status = "(GT>0 & Pred>0)"
 
-        if np.isnan(hd_val):
-            logging.info(f"  Class {c}: Dice: {dice_val:.4f}, mIoU: {miou_val:.4f}, HD: {hd_val} {status}")
-        else:
-            logging.info(f"  Class {c}: Dice: {dice_val:.4f}, mIoU: {miou_val:.4f}, HD: {hd_val:.2f} {status}")
-
-        metrics_per_class.append((dice_val, miou_val, hd_val))
+        logging.info(f"  Class {c}: Dice: {dice.item():.4f}, mIoU: {miou.item():.4f}, HD: {hd:.2f} {status}")
+        
+        metrics_per_class.append((dice.item(), miou.item(), hd))
 
     if test_save_path and case:
         for array, suffix in zip([image_np, prediction_3d, label_np], ["img", "pred", "gt"]):
