@@ -19,7 +19,6 @@ parser.add_argument('--max_epochs', type=int, default=300, help='maximum epoch n
 parser.add_argument('--batch_size', type=int, default=16, help='batch_size per gpu')
 parser.add_argument('--base_lr', type=float, default=0.00001, help='segmentation network learning rate')
 parser.add_argument('--img_size', type=int, default=512, help='input patch size of network input')
-parser.add_argument('--encoder', type=str, default='resnet50_sa', help='for segmentation_models_pytorch encoder')
 parser.add_argument('--exp_setting', type=str,  default='default', help='description of experiment setting')
 parser.add_argument('--deterministic', type=int, default=1, help='whether use deterministic training')
 parser.add_argument('--seed', type=int, default=42, help='random seed')
