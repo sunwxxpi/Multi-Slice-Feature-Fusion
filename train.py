@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
-import segmentation_models_pytorch as smp
+from networks.fcbformer.models import FCBFormer
 from trainer import trainer_coca
 
 parser = argparse.ArgumentParser()
@@ -35,10 +35,8 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
-    net = smp.Unet(encoder_name=args.encoder,
-                   encoder_weights="imagenet",
-                   in_channels=1,
-                   classes=args.num_classes).cuda()
+    net = FCBFormer().cuda()
+    args.encoder = 'pvt_v2_b3'
     
     """ from torchinfo import summary
     torchinfo_summary = str(summary(net, input_size=(args.batch_size, 1, args.img_size, args.img_size), 

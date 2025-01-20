@@ -6,7 +6,7 @@ import logging
 import numpy as np
 import torch
 import torch.backends.cudnn as cudnn
-import segmentation_models_pytorch as smp
+from networks.fcbformer.models import FCBFormer
 from glob import glob
 from tester import inference
 
@@ -40,10 +40,8 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
-    net = smp.Unet(encoder_name=args.encoder,
-                   encoder_weights="imagenet",
-                   in_channels=1,
-                   classes=args.num_classes).cuda()
+    net = FCBFormer().cuda()
+    args.encoder = 'pvt_v2_b3'
     
     exp_path = os.path.join(net.__class__.__name__ + '_' + args.encoder, args.dataset + '_' + str(args.img_size), args.exp_setting)
     parameter_path = 'epo' + str(args.max_epochs) + '_bs' + str(args.batch_size) + '_lr' + str(args.base_lr)
