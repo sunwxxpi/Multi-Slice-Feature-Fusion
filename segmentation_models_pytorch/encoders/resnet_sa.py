@@ -165,21 +165,17 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         self.num_heads = 16
 
         # layer3용 Non-Local Block
-        self.cross_attention_prev_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
-                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.cross_attention_self_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
-        self.cross_attention_next_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
+        self.cross_attention_cross_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.compress_3 = nn.Conv2d(3072, 1024, kernel_size=1, bias=False)
         self.double_conv_3 = DoubleConv(1024, 1024, 1024)
 
         # layer4용 Non-Local Block
-        self.cross_attention_prev_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
-                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.cross_attention_self_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
-        self.cross_attention_next_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
+        self.cross_attention_cross_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.compress_4 = nn.Conv2d(6144, 2048, kernel_size=1, bias=False)
         self.double_conv_4 = DoubleConv(2048, 2048, 2048)
@@ -244,61 +240,41 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         features.append(x_main)
 
         # 6. stage3: layer3 (Non-Local Block 포함)
-        x_prev_blocks = x_prev
-        x_blocks = x_main
-        x_next_blocks = x_next
-
         for i, b in enumerate(self.layer3):
-            x_prev_blocks = b(x_prev_blocks)
-            x_blocks = b(x_blocks)
-            x_next_blocks = b(x_next_blocks)
+            x_prev = b(x_prev)
+            x_main = b(x_main)
+            x_next = b(x_next)
 
             if i == len(self.layer3) - 1:
-                skip_x_main_3 = x_blocks.clone()
-                
-                xt1, _ = self.cross_attention_prev_3(x_blocks, x_prev_blocks)
-                xt2, _ = self.cross_attention_self_3(x_blocks, x_blocks)
-                xt3, _ = self.cross_attention_next_3(x_blocks, x_next_blocks)
+                xt1, _ = self.cross_attention_cross_3(x_main, x_prev)
+                xt2, _ = self.cross_attention_self_3(x_main, x_main)
+                xt3, _ = self.cross_attention_cross_3(x_main, x_next)
                 xt = torch.cat([xt1, xt2, xt3], dim=1)
                 
                 xt = self.compress_3(xt)
                 xt_downcross = self.double_conv_3(xt)
                 
-                x_blocks = xt_downcross + skip_x_main_3
-
-        x_prev = x_prev_blocks
-        x_main = x_blocks
-        x_next = x_next_blocks
+                x_main = xt_downcross + x_main
 
         # main branch의 feature append
         features.append(x_main)
 
         # 7. stage4: layer4 (Non-Local Block 포함)
-        x_prev_blocks = x_prev
-        x_blocks = x_main
-        x_next_blocks = x_next
-
         for i, b in enumerate(self.layer4):
-            x_prev_blocks = b(x_prev_blocks)
-            x_blocks = b(x_blocks)
-            x_next_blocks = b(x_next_blocks)
+            x_prev = b(x_prev)
+            x_main = b(x_main)
+            x_next = b(x_next)
 
             if i == len(self.layer4) - 1:
-                skip_x_main_4 = x_blocks.clone()
-                
-                xt1, _ = self.cross_attention_prev_4(x_blocks, x_prev_blocks)
-                xt2, _ = self.cross_attention_self_4(x_blocks, x_blocks)
-                xt3, _ = self.cross_attention_next_4(x_blocks, x_next_blocks)
+                xt1, _ = self.cross_attention_cross_4(x_main, x_prev)
+                xt2, _ = self.cross_attention_self_4(x_main, x_main)
+                xt3, _ = self.cross_attention_cross_4(x_main, x_next)
                 xt = torch.cat([xt1, xt2, xt3], dim=1)
 
                 xt = self.compress_4(xt)
                 xt_downcross = self.double_conv_4(xt)
                 
-                x_blocks = xt_downcross + skip_x_main_4
-
-        x_prev = x_prev_blocks
-        x_main = x_blocks
-        x_next = x_next_blocks
+                x_main = xt_downcross + x_main
 
         # main branch의 feature append
         features.append(x_main)
