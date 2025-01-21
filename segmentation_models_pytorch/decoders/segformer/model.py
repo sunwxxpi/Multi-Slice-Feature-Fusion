@@ -1,4 +1,4 @@
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Callable
 
 from segmentation_models_pytorch.base import (
     ClassificationHead,
@@ -8,17 +8,11 @@ from segmentation_models_pytorch.base import (
 from segmentation_models_pytorch.encoders import get_encoder
 from segmentation_models_pytorch.base.hub_mixin import supports_config_loading
 
-from .decoder import LinknetDecoder
+from .decoder import SegformerDecoder
 
 
-class Linknet(SegmentationModel):
-    """Linknet_ is a fully convolution neural network for image semantic segmentation. Consist of *encoder*
-    and *decoder* parts connected with *skip connections*. Encoder extract features of different spatial
-    resolution (skip connections) which are used by decoder to define accurate segmentation mask. Use *sum*
-    for fusing decoder blocks with skip connections.
-
-    Note:
-        This implementation by default has 4 skip connections (original - 3).
+class Segformer(SegmentationModel):
+    """Segformer is simple and efficient design for semantic segmentation with Transformers
 
     Args:
         encoder_name: Name of the classification model that will be used as an encoder (a.k.a backbone)
@@ -29,9 +23,7 @@ class Linknet(SegmentationModel):
             Default is 5
         encoder_weights: One of **None** (random initialization), **"imagenet"** (pre-training on ImageNet) and
             other pretrained weights (see table with available weights for each encoder_name)
-        decoder_use_batchnorm: If **True**, BatchNorm2d layer between Conv2D and Activation layers
-            is used. If **"inplace"** InplaceABN will be used, allows to decrease memory consumption.
-            Available options are **True, False, "inplace"**
+        decoder_segmentation_channels: A number of convolution filters in segmentation blocks, default is 256
         in_channels: A number of input channels for the model, default is 3 (RGB images)
         classes: A number of classes for output mask (or you can think as a number of channels of output mask)
         activation: An activation function to apply after the final convolution layer.
@@ -48,10 +40,11 @@ class Linknet(SegmentationModel):
         kwargs: Arguments passed to the encoder class ``__init__()`` function. Applies only to ``timm`` models. Keys with ``None`` values are pruned before passing.
 
     Returns:
-        ``torch.nn.Module``: **Linknet**
+        ``torch.nn.Module``: **Segformer**
 
-    .. _Linknet:
-        https://arxiv.org/abs/1707.03718
+    .. _Segformer:
+        https://arxiv.org/abs/2105.15203
+
     """
 
     @supports_config_loading
@@ -60,19 +53,14 @@ class Linknet(SegmentationModel):
         encoder_name: str = "resnet34",
         encoder_depth: int = 5,
         encoder_weights: Optional[str] = "imagenet",
-        decoder_use_batchnorm: bool = True,
+        decoder_segmentation_channels: int = 256,
         in_channels: int = 3,
         classes: int = 1,
-        activation: Optional[Union[str, callable]] = None,
+        activation: Optional[Union[str, Callable]] = None,
         aux_params: Optional[dict] = None,
         **kwargs: dict[str, Any],
     ):
         super().__init__()
-
-        if encoder_name.startswith("mit_b"):
-            raise ValueError(
-                "Encoder `{}` is not supported for Linknet".format(encoder_name)
-            )
 
         self.encoder = get_encoder(
             encoder_name,
@@ -82,15 +70,18 @@ class Linknet(SegmentationModel):
             **kwargs,
         )
 
-        self.decoder = LinknetDecoder(
+        self.decoder = SegformerDecoder(
             encoder_channels=self.encoder.out_channels,
-            n_blocks=encoder_depth,
-            prefinal_channels=32,
-            use_batchnorm=decoder_use_batchnorm,
+            encoder_depth=encoder_depth,
+            segmentation_channels=decoder_segmentation_channels,
         )
 
         self.segmentation_head = SegmentationHead(
-            in_channels=32, out_channels=classes, activation=activation, kernel_size=1
+            in_channels=decoder_segmentation_channels,
+            out_channels=classes,
+            activation=activation,
+            kernel_size=1,
+            upsampling=4,
         )
 
         if aux_params is not None:
@@ -100,5 +91,5 @@ class Linknet(SegmentationModel):
         else:
             self.classification_head = None
 
-        self.name = "link-{}".format(encoder_name)
+        self.name = "segformer-{}".format(encoder_name)
         self.initialize()
