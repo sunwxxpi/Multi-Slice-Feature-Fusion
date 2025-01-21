@@ -271,7 +271,7 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         x_next = x_next_blocks
 
         # main branch의 feature append
-        features.append(skip_x_main_3)
+        features.append(x_main)
 
         # 7. stage4: layer4 (Non-Local Block 포함)
         x_prev_blocks = x_prev
@@ -301,7 +301,7 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         x_next = x_next_blocks
 
         # main branch의 feature append
-        features.append(skip_x_main_4)
+        features.append(x_main)
 
         return features
 
