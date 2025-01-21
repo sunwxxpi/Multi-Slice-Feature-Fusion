@@ -1,11 +1,13 @@
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from segmentation_models_pytorch.base import (
+    ClassificationHead,
     SegmentationHead,
     SegmentationModel,
-    ClassificationHead,
 )
 from segmentation_models_pytorch.encoders import get_encoder
+from segmentation_models_pytorch.base.hub_mixin import supports_config_loading
+
 from .decoder import LinknetDecoder
 
 
@@ -43,6 +45,7 @@ class Linknet(SegmentationModel):
                 - dropout (float): Dropout factor in [0, 1)
                 - activation (str): An activation function to apply "sigmoid"/"softmax"
                     (could be **None** to return logits)
+        kwargs: Arguments passed to the encoder class ``__init__()`` function. Applies only to ``timm`` models. Keys with ``None`` values are pruned before passing.
 
     Returns:
         ``torch.nn.Module``: **Linknet**
@@ -51,6 +54,7 @@ class Linknet(SegmentationModel):
         https://arxiv.org/abs/1707.03718
     """
 
+    @supports_config_loading
     def __init__(
         self,
         encoder_name: str = "resnet34",
@@ -61,6 +65,7 @@ class Linknet(SegmentationModel):
         classes: int = 1,
         activation: Optional[Union[str, callable]] = None,
         aux_params: Optional[dict] = None,
+        **kwargs: dict[str, Any],
     ):
         super().__init__()
 
@@ -74,6 +79,7 @@ class Linknet(SegmentationModel):
             in_channels=in_channels,
             depth=encoder_depth,
             weights=encoder_weights,
+            **kwargs,
         )
 
         self.decoder = LinknetDecoder(
