@@ -73,6 +73,7 @@ def test_single_volume(image, label, model, classes, patch_size, dice_metric, mi
 
     if test_save_path and case:
         for array, suffix in zip([image_np, prediction_3d, label_np], ["img", "pred", "gt"]):
+            array = np.flip(np.transpose(array, (0, 2, 1)), (1, 2))
             itk_img = sitk.GetImageFromArray(array.astype(np.float32))
             itk_img.SetSpacing((0.375, 0.375, z_spacing))
             sitk.WriteImage(itk_img, f"{test_save_path}/{case}_{suffix}.nii.gz")
