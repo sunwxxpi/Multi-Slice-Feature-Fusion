@@ -36,15 +36,17 @@ def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torc
     
     return prediction, label_slice
 
-def accumulate_slice_prediction(pred_dict: dict, label_dict: dict, case_id: str, slice_id: int, pred_2d: np.ndarray, label_2d: np.ndarray):
+def accumulate_slice_prediction(image_dict: dict, pred_dict: dict, label_dict: dict, case_id: str, slice_id: int, pred_2d: np.ndarray, label_2d: np.ndarray, img_2d: np.ndarray):
     if case_id not in pred_dict:
+        image_dict[case_id] = {}
         pred_dict[case_id] = {}
         label_dict[case_id] = {}
         
+    image_dict[case_id][slice_id] = img_2d
     pred_dict[case_id][slice_id] = pred_2d
     label_dict[case_id][slice_id] = label_2d
 
-def build_3d_volume(pred_slices: dict, label_slices: dict, case_id, args, test_save_path) -> tuple:
+def build_3d_volume(image_slices: dict, pred_slices: dict, label_slices: dict, case_id, args, test_save_path) -> tuple:
     sorted_ids = sorted(pred_slices.keys())
     min_z, max_z = sorted_ids[0], sorted_ids[-1]
     depth = max_z - min_z + 1
@@ -52,26 +54,24 @@ def build_3d_volume(pred_slices: dict, label_slices: dict, case_id, args, test_s
     any_slice = sorted_ids[0]
     H, W = pred_slices[any_slice].shape
 
+    image_3d = np.zeros((depth, H, W), dtype=np.uint8)
     pred_3d = np.zeros((depth, H, W), dtype=np.uint8)
     label_3d = np.zeros((depth, H, W), dtype=np.uint8)
 
     for z in sorted_ids:
         index = z - min_z
+        image_3d[index, :, :] = image_slices[z][1, :, :]
         pred_3d[index, :, :] = pred_slices[z]
         label_3d[index, :, :] = label_slices[z]
         
     if args.is_savenii and test_save_path:
-        pred_itk = sitk.GetImageFromArray(pred_3d.astype(np.float32))
-        label_itk = sitk.GetImageFromArray(label_3d.astype(np.float32))
-        
-        spacing = (0.375, 0.375, args.z_spacing)
-        pred_itk.SetSpacing(spacing)
-        label_itk.SetSpacing(spacing)
+        for array, suffix in zip([image_3d, pred_3d, label_3d], ["img", "pred", "gt"]):
+            array = np.flip(np.transpose(array, (0, 2, 1)), (1, 2))
+            arr_itk = sitk.GetImageFromArray(array.astype(np.float32))
+            arr_itk.SetSpacing((0.375, 0.375, args.z_spacing))
+            sitk.WriteImage(arr_itk, f"{test_save_path}/{case_id}_{suffix}.nii.gz")
 
-        sitk.WriteImage(pred_itk, f"{test_save_path}/{case_id}_pred.nii.gz")
-        sitk.WriteImage(label_itk, f"{test_save_path}/{case_id}_gt.nii.gz")
-
-    return pred_3d, label_3d
+    return image_3d, pred_3d, label_3d
 
 def compute_metrics_3d(pred_3d, label_3d, num_classes, dice_metric, miou_metric, hd_metric, case_id):
     pred_tensor = torch.from_numpy(pred_3d).unsqueeze(0).unsqueeze(0).float().cuda()
@@ -151,14 +151,16 @@ def inference(args, model, test_save_path: str = None):
     testloader = DataLoader(db_test, batch_size=1, shuffle=False, num_workers=1)
     logging.info(f"{len(testloader)} test iterations per epoch")
 
+    image_slices_dict = {}
     pred_slices_dict = {}
     label_slices_dict = {}
 
     for sampled_batch in tqdm(testloader, total=len(testloader), desc="Inference"):
         image, label, full_case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
         case_id, slice_id = parse_case_and_slice_id(full_case_name)
+        img_2d = image.squeeze(0).cpu().numpy()
         pred_2d, label_2d = run_inference_on_slice(image, label, model)
-        accumulate_slice_prediction(pred_slices_dict, label_slices_dict, case_id, slice_id, pred_2d, label_2d)
+        accumulate_slice_prediction(image_slices_dict, pred_slices_dict, label_slices_dict, case_id, slice_id, pred_2d, label_2d, img_2d)
 
     dice_metric = DiceMetric(include_background=True, reduction="mean", ignore_empty=True)
     miou_metric = MeanIoU(include_background=True, reduction="mean", ignore_empty=True)
@@ -168,7 +170,7 @@ def inference(args, model, test_save_path: str = None):
     
     case_list = sorted(pred_slices_dict.keys())
     for case_id in case_list:
-        pred_3d, label_3d = build_3d_volume(pred_slices_dict[case_id], label_slices_dict[case_id], case_id, args, test_save_path)
+        _, pred_3d, label_3d = build_3d_volume(image_slices_dict[case_id], pred_slices_dict[case_id], label_slices_dict[case_id], case_id, args, test_save_path)
         metrics_per_case = compute_metrics_3d(pred_3d, label_3d, args.num_classes, dice_metric, miou_metric, hd_metric, case_id)
         metric_list_per_case.append(metrics_per_case)
 
