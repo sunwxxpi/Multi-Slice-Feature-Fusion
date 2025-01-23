@@ -8,6 +8,7 @@ import torch.optim as optim
 from torch.cuda.amp import autocast, GradScaler
 from torch.utils.data import DataLoader
 from torch.nn.modules.loss import CrossEntropyLoss
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 from tqdm import tqdm
@@ -62,7 +63,8 @@ def trainer_coca(args, model, snapshot_path):
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
     
     max_iterations = args.max_epochs * len(trainloader)
-    scheduler = PolyLRScheduler(optimizer, initial_lr=base_lr, max_steps=max_iterations)
+    # scheduler = PolyLRScheduler(optimizer, initial_lr=base_lr, max_steps=max_iterations)
+    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=10, min_lr=0, verbose=True)
     
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch. {} max iterations ".format(len(trainloader), max_iterations))
@@ -96,9 +98,6 @@ def trainer_coca(args, model, snapshot_path):
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-
-            scheduler.step()
-            current_lr = scheduler.optimizer.param_groups[0]['lr']
             
             iter_num += 1
             
@@ -123,6 +122,8 @@ def trainer_coca(args, model, snapshot_path):
         train_dice_loss /= len(trainloader)
         train_ce_loss /= len(trainloader)
         train_loss /= len(trainloader)
+        
+        current_lr = scheduler.optimizer.param_groups[0]['lr']
         
         writer.add_scalar('train/lr', current_lr, epoch_num)
         writer.add_scalar('train/dice_loss', train_dice_loss, epoch_num)
@@ -159,6 +160,8 @@ def trainer_coca(args, model, snapshot_path):
         writer.add_scalar('val/ce_loss', val_ce_loss, epoch_num)
         writer.add_scalar('val/val_loss', val_loss, epoch_num)
         logging.info('Validation - epoch %d - val_dice_loss: %f, val_ce_loss: %f, val_loss: %f' % (epoch_num, val_dice_loss, val_ce_loss, val_loss))
+
+        scheduler.step(val_loss)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
