@@ -165,17 +165,21 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         self.num_heads = 16
 
         # layer3용 Non-Local Block
+        self.cross_attention_prev_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.cross_attention_self_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
-        self.cross_attention_cross_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
+        self.cross_attention_next_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.compress_3 = nn.Conv2d(3072, 1024, kernel_size=1, bias=False)
         self.double_conv_3 = DoubleConv(1024, 1024, 1024)
 
         # layer4용 Non-Local Block
+        self.cross_attention_prev_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.cross_attention_self_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
-        self.cross_attention_cross_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
+        self.cross_attention_next_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.compress_4 = nn.Conv2d(6144, 2048, kernel_size=1, bias=False)
         self.double_conv_4 = DoubleConv(2048, 2048, 2048)
@@ -245,9 +249,9 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
             x_main = b(x_main)
             x_next = b(x_next)
 
-        xt1, _ = self.cross_attention_cross_3(x_main, x_prev)
+        xt1, _ = self.cross_attention_prev_3(x_main, x_prev)
         xt2, _ = self.cross_attention_self_3(x_main, x_main)
-        xt3, _ = self.cross_attention_cross_3(x_main, x_next)
+        xt3, _ = self.cross_attention_next_3(x_main, x_next)
         xt = torch.cat([xt1, xt2, xt3], dim=1)
         
         xt = self.compress_3(xt)
@@ -264,9 +268,9 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
             x_main = b(x_main)
             x_next = b(x_next)
 
-        xt1, _ = self.cross_attention_cross_4(x_main, x_prev)
+        xt1, _ = self.cross_attention_prev_4(x_main, x_prev)
         xt2, _ = self.cross_attention_self_4(x_main, x_main)
-        xt3, _ = self.cross_attention_cross_4(x_main, x_next)
+        xt3, _ = self.cross_attention_next_4(x_main, x_next)
         xt = torch.cat([xt1, xt2, xt3], dim=1)
 
         xt = self.compress_4(xt)
