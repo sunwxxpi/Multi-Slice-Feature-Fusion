@@ -1,0 +1,628 @@
+======================================================================================================================================================
+Layer (type (var_name):depth-idx)                                      Input Shape          Kernel Shape         Output Shape         Param %
+======================================================================================================================================================
+Unet (Unet)                                                            [16, 1, 512, 512]    --                   [16, 5, 512, 512]         --
+├─EfficientNetEncoder (encoder): 1-1                                   [16, 1, 512, 512]    --                   [16, 1, 512, 512]      3.99%
+│    └─Conv2dStaticSamePadding (_conv_stem): 2-1                       [16, 1, 512, 512]    [3, 3]               [16, 48, 256, 256]     0.00%
+│    │    └─ZeroPad2d (static_padding): 3-1                            [16, 1, 512, 512]    --                   [16, 1, 513, 513]         --
+│    └─BatchNorm2d (_bn0): 2-2                                         [16, 48, 256, 256]   --                   [16, 48, 256, 256]     0.00%
+│    └─MemoryEfficientSwish (_swish): 2-3                              [16, 48, 256, 256]   --                   [16, 48, 256, 256]        --
+│    └─ModuleList (_blocks): 2-4                                       --                   --                   --                        --
+│    │    └─MBConvBlock (0): 3-2                                       [16, 48, 256, 256]   --                   [16, 24, 256, 256]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-1        [16, 48, 256, 256]   [3, 3]               [16, 48, 256, 256]     0.00%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-1                  [16, 48, 256, 256]   --                   [16, 48, 258, 258]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-2                               [16, 48, 256, 256]   --                   [16, 48, 256, 256]     0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-3                    [16, 48, 256, 256]   --                   [16, 48, 256, 256]        --
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-4             [16, 48, 1, 1]       [1, 1]               [16, 12, 1, 1]         0.00%
+│    │    │    │    └─Identity (static_padding): 5-2                   [16, 48, 1, 1]       --                   [16, 48, 1, 1]            --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-5                    [16, 12, 1, 1]       --                   [16, 12, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-6             [16, 12, 1, 1]       [1, 1]               [16, 48, 1, 1]         0.00%
+│    │    │    │    └─Identity (static_padding): 5-3                   [16, 12, 1, 1]       --                   [16, 12, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-7          [16, 48, 256, 256]   [1, 1]               [16, 24, 256, 256]     0.01%
+│    │    │    │    └─Identity (static_padding): 5-4                   [16, 48, 256, 256]   --                   [16, 48, 256, 256]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-8                               [16, 24, 256, 256]   --                   [16, 24, 256, 256]     0.00%
+│    │    └─MBConvBlock (1): 3-3                                       [16, 24, 256, 256]   --                   [16, 24, 256, 256]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-9        [16, 24, 256, 256]   [3, 3]               [16, 24, 256, 256]     0.00%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-5                  [16, 24, 256, 256]   --                   [16, 24, 258, 258]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-10                              [16, 24, 256, 256]   --                   [16, 24, 256, 256]     0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-11                   [16, 24, 256, 256]   --                   [16, 24, 256, 256]        --
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-12            [16, 24, 1, 1]       [1, 1]               [16, 6, 1, 1]          0.00%
+│    │    │    │    └─Identity (static_padding): 5-6                   [16, 24, 1, 1]       --                   [16, 24, 1, 1]            --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-13                   [16, 6, 1, 1]        --                   [16, 6, 1, 1]        (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-14            [16, 6, 1, 1]        [1, 1]               [16, 24, 1, 1]         0.00%
+│    │    │    │    └─Identity (static_padding): 5-7                   [16, 6, 1, 1]        --                   [16, 6, 1, 1]             --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-15         [16, 24, 256, 256]   [1, 1]               [16, 24, 256, 256]     0.00%
+│    │    │    │    └─Identity (static_padding): 5-8                   [16, 24, 256, 256]   --                   [16, 24, 256, 256]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-16                              [16, 24, 256, 256]   --                   [16, 24, 256, 256]     0.00%
+│    │    └─MBConvBlock (2): 3-4                                       [16, 24, 256, 256]   --                   [16, 32, 128, 128]        --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-17          [16, 24, 256, 256]   [1, 1]               [16, 144, 256, 256]    0.02%
+│    │    │    │    └─Identity (static_padding): 5-9                   [16, 24, 256, 256]   --                   [16, 24, 256, 256]        --
+│    │    │    └─BatchNorm2d (_bn0): 4-18                              [16, 144, 256, 256]  --                   [16, 144, 256, 256]    0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-19                   [16, 144, 256, 256]  --                   [16, 144, 256, 256]       --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-20       [16, 144, 256, 256]  [3, 3]               [16, 144, 128, 128]    0.01%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-10                 [16, 144, 256, 256]  --                   [16, 144, 257, 257]       --
+│    │    │    └─BatchNorm2d (_bn1): 4-21                              [16, 144, 128, 128]  --                   [16, 144, 128, 128]    0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-22                   [16, 144, 128, 128]  --                   [16, 144, 128, 128]  (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-23            [16, 144, 1, 1]      [1, 1]               [16, 6, 1, 1]          0.00%
+│    │    │    │    └─Identity (static_padding): 5-11                  [16, 144, 1, 1]      --                   [16, 144, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-24                   [16, 6, 1, 1]        --                   [16, 6, 1, 1]        (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-25            [16, 6, 1, 1]        [1, 1]               [16, 144, 1, 1]        0.00%
+│    │    │    │    └─Identity (static_padding): 5-12                  [16, 6, 1, 1]        --                   [16, 6, 1, 1]             --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-26         [16, 144, 128, 128]  [1, 1]               [16, 32, 128, 128]     0.02%
+│    │    │    │    └─Identity (static_padding): 5-13                  [16, 144, 128, 128]  --                   [16, 144, 128, 128]       --
+│    │    │    └─BatchNorm2d (_bn2): 4-27                              [16, 32, 128, 128]   --                   [16, 32, 128, 128]     0.00%
+│    │    └─MBConvBlock (3): 3-5                                       [16, 32, 128, 128]   --                   [16, 32, 128, 128]        --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-28          [16, 32, 128, 128]   [1, 1]               [16, 192, 128, 128]    0.03%
+│    │    │    │    └─Identity (static_padding): 5-14                  [16, 32, 128, 128]   --                   [16, 32, 128, 128]        --
+│    │    │    └─BatchNorm2d (_bn0): 4-29                              [16, 192, 128, 128]  --                   [16, 192, 128, 128]    0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-30                   [16, 192, 128, 128]  --                   [16, 192, 128, 128]       --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-31       [16, 192, 128, 128]  [3, 3]               [16, 192, 128, 128]    0.01%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-15                 [16, 192, 128, 128]  --                   [16, 192, 130, 130]       --
+│    │    │    └─BatchNorm2d (_bn1): 4-32                              [16, 192, 128, 128]  --                   [16, 192, 128, 128]    0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-33                   [16, 192, 128, 128]  --                   [16, 192, 128, 128]  (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-34            [16, 192, 1, 1]      [1, 1]               [16, 8, 1, 1]          0.01%
+│    │    │    │    └─Identity (static_padding): 5-16                  [16, 192, 1, 1]      --                   [16, 192, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-35                   [16, 8, 1, 1]        --                   [16, 8, 1, 1]        (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-36            [16, 8, 1, 1]        [1, 1]               [16, 192, 1, 1]        0.01%
+│    │    │    │    └─Identity (static_padding): 5-17                  [16, 8, 1, 1]        --                   [16, 8, 1, 1]             --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-37         [16, 192, 128, 128]  [1, 1]               [16, 32, 128, 128]     0.03%
+│    │    │    │    └─Identity (static_padding): 5-18                  [16, 192, 128, 128]  --                   [16, 192, 128, 128]       --
+│    │    │    └─BatchNorm2d (_bn2): 4-38                              [16, 32, 128, 128]   --                   [16, 32, 128, 128]     0.00%
+│    │    └─MBConvBlock (4): 3-6                                       [16, 32, 128, 128]   --                   [16, 32, 128, 128]        --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-39          [16, 32, 128, 128]   [1, 1]               [16, 192, 128, 128]    0.03%
+│    │    │    │    └─Identity (static_padding): 5-19                  [16, 32, 128, 128]   --                   [16, 32, 128, 128]        --
+│    │    │    └─BatchNorm2d (_bn0): 4-40                              [16, 192, 128, 128]  --                   [16, 192, 128, 128]    0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-41                   [16, 192, 128, 128]  --                   [16, 192, 128, 128]       --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-42       [16, 192, 128, 128]  [3, 3]               [16, 192, 128, 128]    0.01%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-20                 [16, 192, 128, 128]  --                   [16, 192, 130, 130]       --
+│    │    │    └─BatchNorm2d (_bn1): 4-43                              [16, 192, 128, 128]  --                   [16, 192, 128, 128]    0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-44                   [16, 192, 128, 128]  --                   [16, 192, 128, 128]  (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-45            [16, 192, 1, 1]      [1, 1]               [16, 8, 1, 1]          0.01%
+│    │    │    │    └─Identity (static_padding): 5-21                  [16, 192, 1, 1]      --                   [16, 192, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-46                   [16, 8, 1, 1]        --                   [16, 8, 1, 1]        (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-47            [16, 8, 1, 1]        [1, 1]               [16, 192, 1, 1]        0.01%
+│    │    │    │    └─Identity (static_padding): 5-22                  [16, 8, 1, 1]        --                   [16, 8, 1, 1]             --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-48         [16, 192, 128, 128]  [1, 1]               [16, 32, 128, 128]     0.03%
+│    │    │    │    └─Identity (static_padding): 5-23                  [16, 192, 128, 128]  --                   [16, 192, 128, 128]       --
+│    │    │    └─BatchNorm2d (_bn2): 4-49                              [16, 32, 128, 128]   --                   [16, 32, 128, 128]     0.00%
+│    │    └─MBConvBlock (5): 3-7                                       [16, 32, 128, 128]   --                   [16, 32, 128, 128]        --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-50          [16, 32, 128, 128]   [1, 1]               [16, 192, 128, 128]    0.03%
+│    │    │    │    └─Identity (static_padding): 5-24                  [16, 32, 128, 128]   --                   [16, 32, 128, 128]        --
+│    │    │    └─BatchNorm2d (_bn0): 4-51                              [16, 192, 128, 128]  --                   [16, 192, 128, 128]    0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-52                   [16, 192, 128, 128]  --                   [16, 192, 128, 128]       --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-53       [16, 192, 128, 128]  [3, 3]               [16, 192, 128, 128]    0.01%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-25                 [16, 192, 128, 128]  --                   [16, 192, 130, 130]       --
+│    │    │    └─BatchNorm2d (_bn1): 4-54                              [16, 192, 128, 128]  --                   [16, 192, 128, 128]    0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-55                   [16, 192, 128, 128]  --                   [16, 192, 128, 128]  (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-56            [16, 192, 1, 1]      [1, 1]               [16, 8, 1, 1]          0.01%
+│    │    │    │    └─Identity (static_padding): 5-26                  [16, 192, 1, 1]      --                   [16, 192, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-57                   [16, 8, 1, 1]        --                   [16, 8, 1, 1]        (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-58            [16, 8, 1, 1]        [1, 1]               [16, 192, 1, 1]        0.01%
+│    │    │    │    └─Identity (static_padding): 5-27                  [16, 8, 1, 1]        --                   [16, 8, 1, 1]             --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-59         [16, 192, 128, 128]  [1, 1]               [16, 32, 128, 128]     0.03%
+│    │    │    │    └─Identity (static_padding): 5-28                  [16, 192, 128, 128]  --                   [16, 192, 128, 128]       --
+│    │    │    └─BatchNorm2d (_bn2): 4-60                              [16, 32, 128, 128]   --                   [16, 32, 128, 128]     0.00%
+│    │    └─MBConvBlock (6): 3-8                                       [16, 32, 128, 128]   --                   [16, 56, 64, 64]          --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-61          [16, 32, 128, 128]   [1, 1]               [16, 192, 128, 128]    0.03%
+│    │    │    │    └─Identity (static_padding): 5-29                  [16, 32, 128, 128]   --                   [16, 32, 128, 128]        --
+│    │    │    └─BatchNorm2d (_bn0): 4-62                              [16, 192, 128, 128]  --                   [16, 192, 128, 128]    0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-63                   [16, 192, 128, 128]  --                   [16, 192, 128, 128]       --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-64       [16, 192, 128, 128]  [5, 5]               [16, 192, 64, 64]      0.02%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-30                 [16, 192, 128, 128]  --                   [16, 192, 132, 132]       --
+│    │    │    └─BatchNorm2d (_bn1): 4-65                              [16, 192, 64, 64]    --                   [16, 192, 64, 64]      0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-66                   [16, 192, 64, 64]    --                   [16, 192, 64, 64]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-67            [16, 192, 1, 1]      [1, 1]               [16, 8, 1, 1]          0.01%
+│    │    │    │    └─Identity (static_padding): 5-31                  [16, 192, 1, 1]      --                   [16, 192, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-68                   [16, 8, 1, 1]        --                   [16, 8, 1, 1]        (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-69            [16, 8, 1, 1]        [1, 1]               [16, 192, 1, 1]        0.01%
+│    │    │    │    └─Identity (static_padding): 5-32                  [16, 8, 1, 1]        --                   [16, 8, 1, 1]             --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-70         [16, 192, 64, 64]    [1, 1]               [16, 56, 64, 64]       0.05%
+│    │    │    │    └─Identity (static_padding): 5-33                  [16, 192, 64, 64]    --                   [16, 192, 64, 64]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-71                              [16, 56, 64, 64]     --                   [16, 56, 64, 64]       0.00%
+│    │    └─MBConvBlock (7): 3-9                                       [16, 56, 64, 64]     --                   [16, 56, 64, 64]          --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-72          [16, 56, 64, 64]     [1, 1]               [16, 336, 64, 64]      0.09%
+│    │    │    │    └─Identity (static_padding): 5-34                  [16, 56, 64, 64]     --                   [16, 56, 64, 64]          --
+│    │    │    └─BatchNorm2d (_bn0): 4-73                              [16, 336, 64, 64]    --                   [16, 336, 64, 64]      0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-74                   [16, 336, 64, 64]    --                   [16, 336, 64, 64]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-75       [16, 336, 64, 64]    [5, 5]               [16, 336, 64, 64]      0.04%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-35                 [16, 336, 64, 64]    --                   [16, 336, 68, 68]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-76                              [16, 336, 64, 64]    --                   [16, 336, 64, 64]      0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-77                   [16, 336, 64, 64]    --                   [16, 336, 64, 64]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-78            [16, 336, 1, 1]      [1, 1]               [16, 14, 1, 1]         0.02%
+│    │    │    │    └─Identity (static_padding): 5-36                  [16, 336, 1, 1]      --                   [16, 336, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-79                   [16, 14, 1, 1]       --                   [16, 14, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-80            [16, 14, 1, 1]       [1, 1]               [16, 336, 1, 1]        0.02%
+│    │    │    │    └─Identity (static_padding): 5-37                  [16, 14, 1, 1]       --                   [16, 14, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-81         [16, 336, 64, 64]    [1, 1]               [16, 56, 64, 64]       0.09%
+│    │    │    │    └─Identity (static_padding): 5-38                  [16, 336, 64, 64]    --                   [16, 336, 64, 64]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-82                              [16, 56, 64, 64]     --                   [16, 56, 64, 64]       0.00%
+│    │    └─MBConvBlock (8): 3-10                                      [16, 56, 64, 64]     --                   [16, 56, 64, 64]          --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-83          [16, 56, 64, 64]     [1, 1]               [16, 336, 64, 64]      0.09%
+│    │    │    │    └─Identity (static_padding): 5-39                  [16, 56, 64, 64]     --                   [16, 56, 64, 64]          --
+│    │    │    └─BatchNorm2d (_bn0): 4-84                              [16, 336, 64, 64]    --                   [16, 336, 64, 64]      0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-85                   [16, 336, 64, 64]    --                   [16, 336, 64, 64]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-86       [16, 336, 64, 64]    [5, 5]               [16, 336, 64, 64]      0.04%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-40                 [16, 336, 64, 64]    --                   [16, 336, 68, 68]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-87                              [16, 336, 64, 64]    --                   [16, 336, 64, 64]      0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-88                   [16, 336, 64, 64]    --                   [16, 336, 64, 64]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-89            [16, 336, 1, 1]      [1, 1]               [16, 14, 1, 1]         0.02%
+│    │    │    │    └─Identity (static_padding): 5-41                  [16, 336, 1, 1]      --                   [16, 336, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-90                   [16, 14, 1, 1]       --                   [16, 14, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-91            [16, 14, 1, 1]       [1, 1]               [16, 336, 1, 1]        0.02%
+│    │    │    │    └─Identity (static_padding): 5-42                  [16, 14, 1, 1]       --                   [16, 14, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-92         [16, 336, 64, 64]    [1, 1]               [16, 56, 64, 64]       0.09%
+│    │    │    │    └─Identity (static_padding): 5-43                  [16, 336, 64, 64]    --                   [16, 336, 64, 64]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-93                              [16, 56, 64, 64]     --                   [16, 56, 64, 64]       0.00%
+│    │    └─MBConvBlock (9): 3-11                                      [16, 56, 64, 64]     --                   [16, 56, 64, 64]          --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-94          [16, 56, 64, 64]     [1, 1]               [16, 336, 64, 64]      0.09%
+│    │    │    │    └─Identity (static_padding): 5-44                  [16, 56, 64, 64]     --                   [16, 56, 64, 64]          --
+│    │    │    └─BatchNorm2d (_bn0): 4-95                              [16, 336, 64, 64]    --                   [16, 336, 64, 64]      0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-96                   [16, 336, 64, 64]    --                   [16, 336, 64, 64]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-97       [16, 336, 64, 64]    [5, 5]               [16, 336, 64, 64]      0.04%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-45                 [16, 336, 64, 64]    --                   [16, 336, 68, 68]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-98                              [16, 336, 64, 64]    --                   [16, 336, 64, 64]      0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-99                   [16, 336, 64, 64]    --                   [16, 336, 64, 64]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-100           [16, 336, 1, 1]      [1, 1]               [16, 14, 1, 1]         0.02%
+│    │    │    │    └─Identity (static_padding): 5-46                  [16, 336, 1, 1]      --                   [16, 336, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-101                  [16, 14, 1, 1]       --                   [16, 14, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-102           [16, 14, 1, 1]       [1, 1]               [16, 336, 1, 1]        0.02%
+│    │    │    │    └─Identity (static_padding): 5-47                  [16, 14, 1, 1]       --                   [16, 14, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-103        [16, 336, 64, 64]    [1, 1]               [16, 56, 64, 64]       0.09%
+│    │    │    │    └─Identity (static_padding): 5-48                  [16, 336, 64, 64]    --                   [16, 336, 64, 64]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-104                             [16, 56, 64, 64]     --                   [16, 56, 64, 64]       0.00%
+│    │    └─MBConvBlock (10): 3-12                                     [16, 56, 64, 64]     --                   [16, 112, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-105         [16, 56, 64, 64]     [1, 1]               [16, 336, 64, 64]      0.09%
+│    │    │    │    └─Identity (static_padding): 5-49                  [16, 56, 64, 64]     --                   [16, 56, 64, 64]          --
+│    │    │    └─BatchNorm2d (_bn0): 4-106                             [16, 336, 64, 64]    --                   [16, 336, 64, 64]      0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-107                  [16, 336, 64, 64]    --                   [16, 336, 64, 64]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-108      [16, 336, 64, 64]    [3, 3]               [16, 336, 32, 32]      0.01%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-50                 [16, 336, 64, 64]    --                   [16, 336, 65, 65]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-109                             [16, 336, 32, 32]    --                   [16, 336, 32, 32]      0.00%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-110                  [16, 336, 32, 32]    --                   [16, 336, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-111           [16, 336, 1, 1]      [1, 1]               [16, 14, 1, 1]         0.02%
+│    │    │    │    └─Identity (static_padding): 5-51                  [16, 336, 1, 1]      --                   [16, 336, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-112                  [16, 14, 1, 1]       --                   [16, 14, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-113           [16, 14, 1, 1]       [1, 1]               [16, 336, 1, 1]        0.02%
+│    │    │    │    └─Identity (static_padding): 5-52                  [16, 14, 1, 1]       --                   [16, 14, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-114        [16, 336, 32, 32]    [1, 1]               [16, 112, 32, 32]      0.19%
+│    │    │    │    └─Identity (static_padding): 5-53                  [16, 336, 32, 32]    --                   [16, 336, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-115                             [16, 112, 32, 32]    --                   [16, 112, 32, 32]      0.00%
+│    │    └─MBConvBlock (11): 3-13                                     [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-116         [16, 112, 32, 32]    [1, 1]               [16, 672, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-54                  [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-117                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-118                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-119      [16, 672, 32, 32]    [3, 3]               [16, 672, 32, 32]      0.03%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-55                 [16, 672, 32, 32]    --                   [16, 672, 34, 34]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-120                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-121                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-122           [16, 672, 1, 1]      [1, 1]               [16, 28, 1, 1]         0.09%
+│    │    │    │    └─Identity (static_padding): 5-56                  [16, 672, 1, 1]      --                   [16, 672, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-123                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-124           [16, 28, 1, 1]       [1, 1]               [16, 672, 1, 1]        0.10%
+│    │    │    │    └─Identity (static_padding): 5-57                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-125        [16, 672, 32, 32]    [1, 1]               [16, 112, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-58                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-126                             [16, 112, 32, 32]    --                   [16, 112, 32, 32]      0.00%
+│    │    └─MBConvBlock (12): 3-14                                     [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-127         [16, 112, 32, 32]    [1, 1]               [16, 672, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-59                  [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-128                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-129                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-130      [16, 672, 32, 32]    [3, 3]               [16, 672, 32, 32]      0.03%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-60                 [16, 672, 32, 32]    --                   [16, 672, 34, 34]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-131                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-132                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-133           [16, 672, 1, 1]      [1, 1]               [16, 28, 1, 1]         0.09%
+│    │    │    │    └─Identity (static_padding): 5-61                  [16, 672, 1, 1]      --                   [16, 672, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-134                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-135           [16, 28, 1, 1]       [1, 1]               [16, 672, 1, 1]        0.10%
+│    │    │    │    └─Identity (static_padding): 5-62                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-136        [16, 672, 32, 32]    [1, 1]               [16, 112, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-63                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-137                             [16, 112, 32, 32]    --                   [16, 112, 32, 32]      0.00%
+│    │    └─MBConvBlock (13): 3-15                                     [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-138         [16, 112, 32, 32]    [1, 1]               [16, 672, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-64                  [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-139                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-140                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-141      [16, 672, 32, 32]    [3, 3]               [16, 672, 32, 32]      0.03%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-65                 [16, 672, 32, 32]    --                   [16, 672, 34, 34]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-142                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-143                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-144           [16, 672, 1, 1]      [1, 1]               [16, 28, 1, 1]         0.09%
+│    │    │    │    └─Identity (static_padding): 5-66                  [16, 672, 1, 1]      --                   [16, 672, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-145                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-146           [16, 28, 1, 1]       [1, 1]               [16, 672, 1, 1]        0.10%
+│    │    │    │    └─Identity (static_padding): 5-67                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-147        [16, 672, 32, 32]    [1, 1]               [16, 112, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-68                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-148                             [16, 112, 32, 32]    --                   [16, 112, 32, 32]      0.00%
+│    │    └─MBConvBlock (14): 3-16                                     [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-149         [16, 112, 32, 32]    [1, 1]               [16, 672, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-69                  [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-150                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-151                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-152      [16, 672, 32, 32]    [3, 3]               [16, 672, 32, 32]      0.03%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-70                 [16, 672, 32, 32]    --                   [16, 672, 34, 34]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-153                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-154                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-155           [16, 672, 1, 1]      [1, 1]               [16, 28, 1, 1]         0.09%
+│    │    │    │    └─Identity (static_padding): 5-71                  [16, 672, 1, 1]      --                   [16, 672, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-156                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-157           [16, 28, 1, 1]       [1, 1]               [16, 672, 1, 1]        0.10%
+│    │    │    │    └─Identity (static_padding): 5-72                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-158        [16, 672, 32, 32]    [1, 1]               [16, 112, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-73                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-159                             [16, 112, 32, 32]    --                   [16, 112, 32, 32]      0.00%
+│    │    └─MBConvBlock (15): 3-17                                     [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-160         [16, 112, 32, 32]    [1, 1]               [16, 672, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-74                  [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-161                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-162                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-163      [16, 672, 32, 32]    [3, 3]               [16, 672, 32, 32]      0.03%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-75                 [16, 672, 32, 32]    --                   [16, 672, 34, 34]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-164                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-165                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-166           [16, 672, 1, 1]      [1, 1]               [16, 28, 1, 1]         0.09%
+│    │    │    │    └─Identity (static_padding): 5-76                  [16, 672, 1, 1]      --                   [16, 672, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-167                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-168           [16, 28, 1, 1]       [1, 1]               [16, 672, 1, 1]        0.10%
+│    │    │    │    └─Identity (static_padding): 5-77                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-169        [16, 672, 32, 32]    [1, 1]               [16, 112, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-78                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-170                             [16, 112, 32, 32]    --                   [16, 112, 32, 32]      0.00%
+│    │    └─MBConvBlock (16): 3-18                                     [16, 112, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-171         [16, 112, 32, 32]    [1, 1]               [16, 672, 32, 32]      0.37%
+│    │    │    │    └─Identity (static_padding): 5-79                  [16, 112, 32, 32]    --                   [16, 112, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-172                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-173                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-174      [16, 672, 32, 32]    [5, 5]               [16, 672, 32, 32]      0.08%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-80                 [16, 672, 32, 32]    --                   [16, 672, 36, 36]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-175                             [16, 672, 32, 32]    --                   [16, 672, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-176                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-177           [16, 672, 1, 1]      [1, 1]               [16, 28, 1, 1]         0.09%
+│    │    │    │    └─Identity (static_padding): 5-81                  [16, 672, 1, 1]      --                   [16, 672, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-178                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-179           [16, 28, 1, 1]       [1, 1]               [16, 672, 1, 1]        0.10%
+│    │    │    │    └─Identity (static_padding): 5-82                  [16, 28, 1, 1]       --                   [16, 28, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-180        [16, 672, 32, 32]    [1, 1]               [16, 160, 32, 32]      0.53%
+│    │    │    │    └─Identity (static_padding): 5-83                  [16, 672, 32, 32]    --                   [16, 672, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-181                             [16, 160, 32, 32]    --                   [16, 160, 32, 32]      0.00%
+│    │    └─MBConvBlock (17): 3-19                                     [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-182         [16, 160, 32, 32]    [1, 1]               [16, 960, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-84                  [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-183                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-184                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-185      [16, 960, 32, 32]    [5, 5]               [16, 960, 32, 32]      0.12%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-85                 [16, 960, 32, 32]    --                   [16, 960, 36, 36]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-186                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-187                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-188           [16, 960, 1, 1]      [1, 1]               [16, 40, 1, 1]         0.19%
+│    │    │    │    └─Identity (static_padding): 5-86                  [16, 960, 1, 1]      --                   [16, 960, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-189                  [16, 40, 1, 1]       --                   [16, 40, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-190           [16, 40, 1, 1]       [1, 1]               [16, 960, 1, 1]        0.19%
+│    │    │    │    └─Identity (static_padding): 5-87                  [16, 40, 1, 1]       --                   [16, 40, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-191        [16, 960, 32, 32]    [1, 1]               [16, 160, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-88                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-192                             [16, 160, 32, 32]    --                   [16, 160, 32, 32]      0.00%
+│    │    └─MBConvBlock (18): 3-20                                     [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-193         [16, 160, 32, 32]    [1, 1]               [16, 960, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-89                  [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-194                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-195                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-196      [16, 960, 32, 32]    [5, 5]               [16, 960, 32, 32]      0.12%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-90                 [16, 960, 32, 32]    --                   [16, 960, 36, 36]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-197                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-198                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-199           [16, 960, 1, 1]      [1, 1]               [16, 40, 1, 1]         0.19%
+│    │    │    │    └─Identity (static_padding): 5-91                  [16, 960, 1, 1]      --                   [16, 960, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-200                  [16, 40, 1, 1]       --                   [16, 40, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-201           [16, 40, 1, 1]       [1, 1]               [16, 960, 1, 1]        0.19%
+│    │    │    │    └─Identity (static_padding): 5-92                  [16, 40, 1, 1]       --                   [16, 40, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-202        [16, 960, 32, 32]    [1, 1]               [16, 160, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-93                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-203                             [16, 160, 32, 32]    --                   [16, 160, 32, 32]      0.00%
+│    │    └─MBConvBlock (19): 3-21                                     [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-204         [16, 160, 32, 32]    [1, 1]               [16, 960, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-94                  [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-205                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-206                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-207      [16, 960, 32, 32]    [5, 5]               [16, 960, 32, 32]      0.12%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-95                 [16, 960, 32, 32]    --                   [16, 960, 36, 36]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-208                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-209                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-210           [16, 960, 1, 1]      [1, 1]               [16, 40, 1, 1]         0.19%
+│    │    │    │    └─Identity (static_padding): 5-96                  [16, 960, 1, 1]      --                   [16, 960, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-211                  [16, 40, 1, 1]       --                   [16, 40, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-212           [16, 40, 1, 1]       [1, 1]               [16, 960, 1, 1]        0.19%
+│    │    │    │    └─Identity (static_padding): 5-97                  [16, 40, 1, 1]       --                   [16, 40, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-213        [16, 960, 32, 32]    [1, 1]               [16, 160, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-98                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-214                             [16, 160, 32, 32]    --                   [16, 160, 32, 32]      0.00%
+│    │    └─MBConvBlock (20): 3-22                                     [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-215         [16, 160, 32, 32]    [1, 1]               [16, 960, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-99                  [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-216                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-217                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-218      [16, 960, 32, 32]    [5, 5]               [16, 960, 32, 32]      0.12%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-100                [16, 960, 32, 32]    --                   [16, 960, 36, 36]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-219                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-220                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-221           [16, 960, 1, 1]      [1, 1]               [16, 40, 1, 1]         0.19%
+│    │    │    │    └─Identity (static_padding): 5-101                 [16, 960, 1, 1]      --                   [16, 960, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-222                  [16, 40, 1, 1]       --                   [16, 40, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-223           [16, 40, 1, 1]       [1, 1]               [16, 960, 1, 1]        0.19%
+│    │    │    │    └─Identity (static_padding): 5-102                 [16, 40, 1, 1]       --                   [16, 40, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-224        [16, 960, 32, 32]    [1, 1]               [16, 160, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-103                 [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-225                             [16, 160, 32, 32]    --                   [16, 160, 32, 32]      0.00%
+│    │    └─MBConvBlock (21): 3-23                                     [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-226         [16, 160, 32, 32]    [1, 1]               [16, 960, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-104                 [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-227                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-228                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-229      [16, 960, 32, 32]    [5, 5]               [16, 960, 32, 32]      0.12%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-105                [16, 960, 32, 32]    --                   [16, 960, 36, 36]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-230                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-231                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-232           [16, 960, 1, 1]      [1, 1]               [16, 40, 1, 1]         0.19%
+│    │    │    │    └─Identity (static_padding): 5-106                 [16, 960, 1, 1]      --                   [16, 960, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-233                  [16, 40, 1, 1]       --                   [16, 40, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-234           [16, 40, 1, 1]       [1, 1]               [16, 960, 1, 1]        0.19%
+│    │    │    │    └─Identity (static_padding): 5-107                 [16, 40, 1, 1]       --                   [16, 40, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-235        [16, 960, 32, 32]    [1, 1]               [16, 160, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-108                 [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-236                             [16, 160, 32, 32]    --                   [16, 160, 32, 32]      0.00%
+│    │    └─MBConvBlock (22): 3-24                                     [16, 160, 32, 32]    --                   [16, 272, 16, 16]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-237         [16, 160, 32, 32]    [1, 1]               [16, 960, 32, 32]      0.76%
+│    │    │    │    └─Identity (static_padding): 5-109                 [16, 160, 32, 32]    --                   [16, 160, 32, 32]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-238                             [16, 960, 32, 32]    --                   [16, 960, 32, 32]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-239                  [16, 960, 32, 32]    --                   [16, 960, 32, 32]         --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-240      [16, 960, 32, 32]    [5, 5]               [16, 960, 16, 16]      0.12%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-110                [16, 960, 32, 32]    --                   [16, 960, 35, 35]         --
+│    │    │    └─BatchNorm2d (_bn1): 4-241                             [16, 960, 16, 16]    --                   [16, 960, 16, 16]      0.01%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-242                  [16, 960, 16, 16]    --                   [16, 960, 16, 16]    (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-243           [16, 960, 1, 1]      [1, 1]               [16, 40, 1, 1]         0.19%
+│    │    │    │    └─Identity (static_padding): 5-111                 [16, 960, 1, 1]      --                   [16, 960, 1, 1]           --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-244                  [16, 40, 1, 1]       --                   [16, 40, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-245           [16, 40, 1, 1]       [1, 1]               [16, 960, 1, 1]        0.19%
+│    │    │    │    └─Identity (static_padding): 5-112                 [16, 40, 1, 1]       --                   [16, 40, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-246        [16, 960, 16, 16]    [1, 1]               [16, 272, 16, 16]      1.29%
+│    │    │    │    └─Identity (static_padding): 5-113                 [16, 960, 16, 16]    --                   [16, 960, 16, 16]         --
+│    │    │    └─BatchNorm2d (_bn2): 4-247                             [16, 272, 16, 16]    --                   [16, 272, 16, 16]      0.00%
+│    │    └─MBConvBlock (23): 3-25                                     [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-248         [16, 272, 16, 16]    [1, 1]               [16, 1632, 16, 16]     2.19%
+│    │    │    │    └─Identity (static_padding): 5-114                 [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-249                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-250                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-251      [16, 1632, 16, 16]   [5, 5]               [16, 1632, 16, 16]     0.20%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-115                [16, 1632, 16, 16]   --                   [16, 1632, 20, 20]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-252                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-253                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]   (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-254           [16, 1632, 1, 1]     [1, 1]               [16, 68, 1, 1]         0.55%
+│    │    │    │    └─Identity (static_padding): 5-116                 [16, 1632, 1, 1]     --                   [16, 1632, 1, 1]          --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-255                  [16, 68, 1, 1]       --                   [16, 68, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-256           [16, 68, 1, 1]       [1, 1]               [16, 1632, 1, 1]       0.56%
+│    │    │    │    └─Identity (static_padding): 5-117                 [16, 68, 1, 1]       --                   [16, 68, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-257        [16, 1632, 16, 16]   [1, 1]               [16, 272, 16, 16]      2.19%
+│    │    │    │    └─Identity (static_padding): 5-118                 [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-258                             [16, 272, 16, 16]    --                   [16, 272, 16, 16]      0.00%
+│    │    └─MBConvBlock (24): 3-26                                     [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-259         [16, 272, 16, 16]    [1, 1]               [16, 1632, 16, 16]     2.19%
+│    │    │    │    └─Identity (static_padding): 5-119                 [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-260                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-261                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-262      [16, 1632, 16, 16]   [5, 5]               [16, 1632, 16, 16]     0.20%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-120                [16, 1632, 16, 16]   --                   [16, 1632, 20, 20]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-263                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-264                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]   (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-265           [16, 1632, 1, 1]     [1, 1]               [16, 68, 1, 1]         0.55%
+│    │    │    │    └─Identity (static_padding): 5-121                 [16, 1632, 1, 1]     --                   [16, 1632, 1, 1]          --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-266                  [16, 68, 1, 1]       --                   [16, 68, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-267           [16, 68, 1, 1]       [1, 1]               [16, 1632, 1, 1]       0.56%
+│    │    │    │    └─Identity (static_padding): 5-122                 [16, 68, 1, 1]       --                   [16, 68, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-268        [16, 1632, 16, 16]   [1, 1]               [16, 272, 16, 16]      2.19%
+│    │    │    │    └─Identity (static_padding): 5-123                 [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-269                             [16, 272, 16, 16]    --                   [16, 272, 16, 16]      0.00%
+│    │    └─MBConvBlock (25): 3-27                                     [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-270         [16, 272, 16, 16]    [1, 1]               [16, 1632, 16, 16]     2.19%
+│    │    │    │    └─Identity (static_padding): 5-124                 [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-271                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-272                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-273      [16, 1632, 16, 16]   [5, 5]               [16, 1632, 16, 16]     0.20%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-125                [16, 1632, 16, 16]   --                   [16, 1632, 20, 20]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-274                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-275                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]   (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-276           [16, 1632, 1, 1]     [1, 1]               [16, 68, 1, 1]         0.55%
+│    │    │    │    └─Identity (static_padding): 5-126                 [16, 1632, 1, 1]     --                   [16, 1632, 1, 1]          --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-277                  [16, 68, 1, 1]       --                   [16, 68, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-278           [16, 68, 1, 1]       [1, 1]               [16, 1632, 1, 1]       0.56%
+│    │    │    │    └─Identity (static_padding): 5-127                 [16, 68, 1, 1]       --                   [16, 68, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-279        [16, 1632, 16, 16]   [1, 1]               [16, 272, 16, 16]      2.19%
+│    │    │    │    └─Identity (static_padding): 5-128                 [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-280                             [16, 272, 16, 16]    --                   [16, 272, 16, 16]      0.00%
+│    │    └─MBConvBlock (26): 3-28                                     [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-281         [16, 272, 16, 16]    [1, 1]               [16, 1632, 16, 16]     2.19%
+│    │    │    │    └─Identity (static_padding): 5-129                 [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-282                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-283                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-284      [16, 1632, 16, 16]   [5, 5]               [16, 1632, 16, 16]     0.20%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-130                [16, 1632, 16, 16]   --                   [16, 1632, 20, 20]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-285                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-286                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]   (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-287           [16, 1632, 1, 1]     [1, 1]               [16, 68, 1, 1]         0.55%
+│    │    │    │    └─Identity (static_padding): 5-131                 [16, 1632, 1, 1]     --                   [16, 1632, 1, 1]          --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-288                  [16, 68, 1, 1]       --                   [16, 68, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-289           [16, 68, 1, 1]       [1, 1]               [16, 1632, 1, 1]       0.56%
+│    │    │    │    └─Identity (static_padding): 5-132                 [16, 68, 1, 1]       --                   [16, 68, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-290        [16, 1632, 16, 16]   [1, 1]               [16, 272, 16, 16]      2.19%
+│    │    │    │    └─Identity (static_padding): 5-133                 [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-291                             [16, 272, 16, 16]    --                   [16, 272, 16, 16]      0.00%
+│    │    └─MBConvBlock (27): 3-29                                     [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-292         [16, 272, 16, 16]    [1, 1]               [16, 1632, 16, 16]     2.19%
+│    │    │    │    └─Identity (static_padding): 5-134                 [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-293                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-294                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-295      [16, 1632, 16, 16]   [5, 5]               [16, 1632, 16, 16]     0.20%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-135                [16, 1632, 16, 16]   --                   [16, 1632, 20, 20]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-296                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-297                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]   (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-298           [16, 1632, 1, 1]     [1, 1]               [16, 68, 1, 1]         0.55%
+│    │    │    │    └─Identity (static_padding): 5-136                 [16, 1632, 1, 1]     --                   [16, 1632, 1, 1]          --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-299                  [16, 68, 1, 1]       --                   [16, 68, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-300           [16, 68, 1, 1]       [1, 1]               [16, 1632, 1, 1]       0.56%
+│    │    │    │    └─Identity (static_padding): 5-137                 [16, 68, 1, 1]       --                   [16, 68, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-301        [16, 1632, 16, 16]   [1, 1]               [16, 272, 16, 16]      2.19%
+│    │    │    │    └─Identity (static_padding): 5-138                 [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-302                             [16, 272, 16, 16]    --                   [16, 272, 16, 16]      0.00%
+│    │    └─MBConvBlock (28): 3-30                                     [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-303         [16, 272, 16, 16]    [1, 1]               [16, 1632, 16, 16]     2.19%
+│    │    │    │    └─Identity (static_padding): 5-139                 [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-304                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-305                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-306      [16, 1632, 16, 16]   [5, 5]               [16, 1632, 16, 16]     0.20%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-140                [16, 1632, 16, 16]   --                   [16, 1632, 20, 20]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-307                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-308                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]   (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-309           [16, 1632, 1, 1]     [1, 1]               [16, 68, 1, 1]         0.55%
+│    │    │    │    └─Identity (static_padding): 5-141                 [16, 1632, 1, 1]     --                   [16, 1632, 1, 1]          --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-310                  [16, 68, 1, 1]       --                   [16, 68, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-311           [16, 68, 1, 1]       [1, 1]               [16, 1632, 1, 1]       0.56%
+│    │    │    │    └─Identity (static_padding): 5-142                 [16, 68, 1, 1]       --                   [16, 68, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-312        [16, 1632, 16, 16]   [1, 1]               [16, 272, 16, 16]      2.19%
+│    │    │    │    └─Identity (static_padding): 5-143                 [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-313                             [16, 272, 16, 16]    --                   [16, 272, 16, 16]      0.00%
+│    │    └─MBConvBlock (29): 3-31                                     [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-314         [16, 272, 16, 16]    [1, 1]               [16, 1632, 16, 16]     2.19%
+│    │    │    │    └─Identity (static_padding): 5-144                 [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-315                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-316                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-317      [16, 1632, 16, 16]   [5, 5]               [16, 1632, 16, 16]     0.20%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-145                [16, 1632, 16, 16]   --                   [16, 1632, 20, 20]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-318                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-319                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]   (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-320           [16, 1632, 1, 1]     [1, 1]               [16, 68, 1, 1]         0.55%
+│    │    │    │    └─Identity (static_padding): 5-146                 [16, 1632, 1, 1]     --                   [16, 1632, 1, 1]          --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-321                  [16, 68, 1, 1]       --                   [16, 68, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-322           [16, 68, 1, 1]       [1, 1]               [16, 1632, 1, 1]       0.56%
+│    │    │    │    └─Identity (static_padding): 5-147                 [16, 68, 1, 1]       --                   [16, 68, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-323        [16, 1632, 16, 16]   [1, 1]               [16, 272, 16, 16]      2.19%
+│    │    │    │    └─Identity (static_padding): 5-148                 [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-324                             [16, 272, 16, 16]    --                   [16, 272, 16, 16]      0.00%
+│    │    └─MBConvBlock (30): 3-32                                     [16, 272, 16, 16]    --                   [16, 448, 16, 16]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-325         [16, 272, 16, 16]    [1, 1]               [16, 1632, 16, 16]     2.19%
+│    │    │    │    └─Identity (static_padding): 5-149                 [16, 272, 16, 16]    --                   [16, 272, 16, 16]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-326                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-327                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-328      [16, 1632, 16, 16]   [3, 3]               [16, 1632, 16, 16]     0.07%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-150                [16, 1632, 16, 16]   --                   [16, 1632, 18, 18]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-329                             [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]     0.02%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-330                  [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]   (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-331           [16, 1632, 1, 1]     [1, 1]               [16, 68, 1, 1]         0.55%
+│    │    │    │    └─Identity (static_padding): 5-151                 [16, 1632, 1, 1]     --                   [16, 1632, 1, 1]          --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-332                  [16, 68, 1, 1]       --                   [16, 68, 1, 1]       (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-333           [16, 68, 1, 1]       [1, 1]               [16, 1632, 1, 1]       0.56%
+│    │    │    │    └─Identity (static_padding): 5-152                 [16, 68, 1, 1]       --                   [16, 68, 1, 1]            --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-334        [16, 1632, 16, 16]   [1, 1]               [16, 448, 16, 16]      3.61%
+│    │    │    │    └─Identity (static_padding): 5-153                 [16, 1632, 16, 16]   --                   [16, 1632, 16, 16]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-335                             [16, 448, 16, 16]    --                   [16, 448, 16, 16]      0.00%
+│    │    └─MBConvBlock (31): 3-33                                     [16, 448, 16, 16]    --                   [16, 448, 16, 16]         --
+│    │    │    └─Conv2dStaticSamePadding (_expand_conv): 4-336         [16, 448, 16, 16]    [1, 1]               [16, 2688, 16, 16]     5.95%
+│    │    │    │    └─Identity (static_padding): 5-154                 [16, 448, 16, 16]    --                   [16, 448, 16, 16]         --
+│    │    │    └─BatchNorm2d (_bn0): 4-337                             [16, 2688, 16, 16]   --                   [16, 2688, 16, 16]     0.03%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-338                  [16, 2688, 16, 16]   --                   [16, 2688, 16, 16]        --
+│    │    │    └─Conv2dStaticSamePadding (_depthwise_conv): 4-339      [16, 2688, 16, 16]   [3, 3]               [16, 2688, 16, 16]     0.12%
+│    │    │    │    └─ZeroPad2d (static_padding): 5-155                [16, 2688, 16, 16]   --                   [16, 2688, 18, 18]        --
+│    │    │    └─BatchNorm2d (_bn1): 4-340                             [16, 2688, 16, 16]   --                   [16, 2688, 16, 16]     0.03%
+│    │    │    └─MemoryEfficientSwish (_swish): 4-341                  [16, 2688, 16, 16]   --                   [16, 2688, 16, 16]   (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_reduce): 4-342           [16, 2688, 1, 1]     [1, 1]               [16, 112, 1, 1]        1.49%
+│    │    │    │    └─Identity (static_padding): 5-156                 [16, 2688, 1, 1]     --                   [16, 2688, 1, 1]          --
+│    │    │    └─MemoryEfficientSwish (_swish): 4-343                  [16, 112, 1, 1]      --                   [16, 112, 1, 1]      (recursive)
+│    │    │    └─Conv2dStaticSamePadding (_se_expand): 4-344           [16, 112, 1, 1]      [1, 1]               [16, 2688, 1, 1]       1.50%
+│    │    │    │    └─Identity (static_padding): 5-157                 [16, 112, 1, 1]      --                   [16, 112, 1, 1]           --
+│    │    │    └─Conv2dStaticSamePadding (_project_conv): 4-345        [16, 2688, 16, 16]   [1, 1]               [16, 448, 16, 16]      5.95%
+│    │    │    │    └─Identity (static_padding): 5-158                 [16, 2688, 16, 16]   --                   [16, 2688, 16, 16]        --
+│    │    │    └─BatchNorm2d (_bn2): 4-346                             [16, 448, 16, 16]    --                   [16, 448, 16, 16]      0.00%
+├─UnetDecoder (decoder): 1-2                                           [16, 1, 512, 512]    --                   [16, 16, 512, 512]        --
+│    └─Identity (center): 2-5                                          [16, 448, 16, 16]    --                   [16, 448, 16, 16]         --
+│    └─ModuleList (blocks): 2-6                                        --                   --                   --                        --
+│    │    └─DecoderBlock (0): 3-34                                     [16, 448, 16, 16]    --                   [16, 256, 32, 32]         --
+│    │    │    └─Attention (attention1): 4-347                         [16, 608, 32, 32]    --                   [16, 608, 32, 32]         --
+│    │    │    │    └─Identity (attention): 5-159                      [16, 608, 32, 32]    --                   [16, 608, 32, 32]         --
+│    │    │    └─Conv2dReLU (conv1): 4-348                             [16, 608, 32, 32]    --                   [16, 256, 32, 32]         --
+│    │    │    │    └─Conv2d (0): 5-160                                [16, 608, 32, 32]    [3, 3]               [16, 256, 32, 32]      6.93%
+│    │    │    │    └─BatchNorm2d (1): 5-161                           [16, 256, 32, 32]    --                   [16, 256, 32, 32]      0.00%
+│    │    │    │    └─ReLU (2): 5-162                                  [16, 256, 32, 32]    --                   [16, 256, 32, 32]         --
+│    │    │    └─Conv2dReLU (conv2): 4-349                             [16, 256, 32, 32]    --                   [16, 256, 32, 32]         --
+│    │    │    │    └─Conv2d (0): 5-163                                [16, 256, 32, 32]    [3, 3]               [16, 256, 32, 32]      2.92%
+│    │    │    │    └─BatchNorm2d (1): 5-164                           [16, 256, 32, 32]    --                   [16, 256, 32, 32]      0.00%
+│    │    │    │    └─ReLU (2): 5-165                                  [16, 256, 32, 32]    --                   [16, 256, 32, 32]         --
+│    │    │    └─Attention (attention2): 4-350                         [16, 256, 32, 32]    --                   [16, 256, 32, 32]         --
+│    │    │    │    └─Identity (attention): 5-166                      [16, 256, 32, 32]    --                   [16, 256, 32, 32]         --
+│    │    └─DecoderBlock (1): 3-35                                     [16, 256, 32, 32]    --                   [16, 128, 64, 64]         --
+│    │    │    └─Attention (attention1): 4-351                         [16, 312, 64, 64]    --                   [16, 312, 64, 64]         --
+│    │    │    │    └─Identity (attention): 5-167                      [16, 312, 64, 64]    --                   [16, 312, 64, 64]         --
+│    │    │    └─Conv2dReLU (conv1): 4-352                             [16, 312, 64, 64]    --                   [16, 128, 64, 64]         --
+│    │    │    │    └─Conv2d (0): 5-168                                [16, 312, 64, 64]    [3, 3]               [16, 128, 64, 64]      1.78%
+│    │    │    │    └─BatchNorm2d (1): 5-169                           [16, 128, 64, 64]    --                   [16, 128, 64, 64]      0.00%
+│    │    │    │    └─ReLU (2): 5-170                                  [16, 128, 64, 64]    --                   [16, 128, 64, 64]         --
+│    │    │    └─Conv2dReLU (conv2): 4-353                             [16, 128, 64, 64]    --                   [16, 128, 64, 64]         --
+│    │    │    │    └─Conv2d (0): 5-171                                [16, 128, 64, 64]    [3, 3]               [16, 128, 64, 64]      0.73%
+│    │    │    │    └─BatchNorm2d (1): 5-172                           [16, 128, 64, 64]    --                   [16, 128, 64, 64]      0.00%
+│    │    │    │    └─ReLU (2): 5-173                                  [16, 128, 64, 64]    --                   [16, 128, 64, 64]         --
+│    │    │    └─Attention (attention2): 4-354                         [16, 128, 64, 64]    --                   [16, 128, 64, 64]         --
+│    │    │    │    └─Identity (attention): 5-174                      [16, 128, 64, 64]    --                   [16, 128, 64, 64]         --
+│    │    └─DecoderBlock (2): 3-36                                     [16, 128, 64, 64]    --                   [16, 64, 128, 128]        --
+│    │    │    └─Attention (attention1): 4-355                         [16, 160, 128, 128]  --                   [16, 160, 128, 128]       --
+│    │    │    │    └─Identity (attention): 5-175                      [16, 160, 128, 128]  --                   [16, 160, 128, 128]       --
+│    │    │    └─Conv2dReLU (conv1): 4-356                             [16, 160, 128, 128]  --                   [16, 64, 128, 128]        --
+│    │    │    │    └─Conv2d (0): 5-176                                [16, 160, 128, 128]  [3, 3]               [16, 64, 128, 128]     0.46%
+│    │    │    │    └─BatchNorm2d (1): 5-177                           [16, 64, 128, 128]   --                   [16, 64, 128, 128]     0.00%
+│    │    │    │    └─ReLU (2): 5-178                                  [16, 64, 128, 128]   --                   [16, 64, 128, 128]        --
+│    │    │    └─Conv2dReLU (conv2): 4-357                             [16, 64, 128, 128]   --                   [16, 64, 128, 128]        --
+│    │    │    │    └─Conv2d (0): 5-179                                [16, 64, 128, 128]   [3, 3]               [16, 64, 128, 128]     0.18%
+│    │    │    │    └─BatchNorm2d (1): 5-180                           [16, 64, 128, 128]   --                   [16, 64, 128, 128]     0.00%
+│    │    │    │    └─ReLU (2): 5-181                                  [16, 64, 128, 128]   --                   [16, 64, 128, 128]        --
+│    │    │    └─Attention (attention2): 4-358                         [16, 64, 128, 128]   --                   [16, 64, 128, 128]        --
+│    │    │    │    └─Identity (attention): 5-182                      [16, 64, 128, 128]   --                   [16, 64, 128, 128]        --
+│    │    └─DecoderBlock (3): 3-37                                     [16, 64, 128, 128]   --                   [16, 32, 256, 256]        --
+│    │    │    └─Attention (attention1): 4-359                         [16, 112, 256, 256]  --                   [16, 112, 256, 256]       --
+│    │    │    │    └─Identity (attention): 5-183                      [16, 112, 256, 256]  --                   [16, 112, 256, 256]       --
+│    │    │    └─Conv2dReLU (conv1): 4-360                             [16, 112, 256, 256]  --                   [16, 32, 256, 256]        --
+│    │    │    │    └─Conv2d (0): 5-184                                [16, 112, 256, 256]  [3, 3]               [16, 32, 256, 256]     0.16%
+│    │    │    │    └─BatchNorm2d (1): 5-185                           [16, 32, 256, 256]   --                   [16, 32, 256, 256]     0.00%
+│    │    │    │    └─ReLU (2): 5-186                                  [16, 32, 256, 256]   --                   [16, 32, 256, 256]        --
+│    │    │    └─Conv2dReLU (conv2): 4-361                             [16, 32, 256, 256]   --                   [16, 32, 256, 256]        --
+│    │    │    │    └─Conv2d (0): 5-187                                [16, 32, 256, 256]   [3, 3]               [16, 32, 256, 256]     0.05%
+│    │    │    │    └─BatchNorm2d (1): 5-188                           [16, 32, 256, 256]   --                   [16, 32, 256, 256]     0.00%
+│    │    │    │    └─ReLU (2): 5-189                                  [16, 32, 256, 256]   --                   [16, 32, 256, 256]        --
+│    │    │    └─Attention (attention2): 4-362                         [16, 32, 256, 256]   --                   [16, 32, 256, 256]        --
+│    │    │    │    └─Identity (attention): 5-190                      [16, 32, 256, 256]   --                   [16, 32, 256, 256]        --
+│    │    └─DecoderBlock (4): 3-38                                     [16, 32, 256, 256]   --                   [16, 16, 512, 512]        --
+│    │    │    └─Conv2dReLU (conv1): 4-363                             [16, 32, 512, 512]   --                   [16, 16, 512, 512]        --
+│    │    │    │    └─Conv2d (0): 5-191                                [16, 32, 512, 512]   [3, 3]               [16, 16, 512, 512]     0.02%
+│    │    │    │    └─BatchNorm2d (1): 5-192                           [16, 16, 512, 512]   --                   [16, 16, 512, 512]     0.00%
+│    │    │    │    └─ReLU (2): 5-193                                  [16, 16, 512, 512]   --                   [16, 16, 512, 512]        --
+│    │    │    └─Conv2dReLU (conv2): 4-364                             [16, 16, 512, 512]   --                   [16, 16, 512, 512]        --
+│    │    │    │    └─Conv2d (0): 5-194                                [16, 16, 512, 512]   [3, 3]               [16, 16, 512, 512]     0.01%
+│    │    │    │    └─BatchNorm2d (1): 5-195                           [16, 16, 512, 512]   --                   [16, 16, 512, 512]     0.00%
+│    │    │    │    └─ReLU (2): 5-196                                  [16, 16, 512, 512]   --                   [16, 16, 512, 512]        --
+│    │    │    └─Attention (attention2): 4-365                         [16, 16, 512, 512]   --                   [16, 16, 512, 512]        --
+│    │    │    │    └─Identity (attention): 5-197                      [16, 16, 512, 512]   --                   [16, 16, 512, 512]        --
+├─SegmentationHead (segmentation_head): 1-3                            [16, 16, 512, 512]   --                   [16, 5, 512, 512]         --
+│    └─Conv2d (0): 2-7                                                 [16, 16, 512, 512]   [3, 3]               [16, 5, 512, 512]      0.00%
+│    └─Identity (1): 2-8                                               [16, 5, 512, 512]    --                   [16, 5, 512, 512]         --
+│    └─Activation (2): 2-9                                             [16, 5, 512, 512]    --                   [16, 5, 512, 512]         --
+│    │    └─Identity (activation): 3-39                                [16, 5, 512, 512]    --                   [16, 5, 512, 512]         --
+======================================================================================================================================================
+Total params: 20,225,405
+Trainable params: 20,225,405
+Non-trainable params: 0
+Total mult-adds (G): 175.18
+======================================================================================================================================================
+Input size (MB): 16.78
+Forward/backward pass size (MB): 15648.95
+Params size (MB): 11.20
+Estimated Total Size (MB): 15676.92
+======================================================================================================================================================
