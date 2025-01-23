@@ -245,16 +245,15 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
             x_main = b(x_main)
             x_next = b(x_next)
 
-            if i == len(self.layer3) - 1:
-                xt1, _ = self.cross_attention_cross_3(x_main, x_prev)
-                xt2, _ = self.cross_attention_self_3(x_main, x_main)
-                xt3, _ = self.cross_attention_cross_3(x_main, x_next)
-                xt = torch.cat([xt1, xt2, xt3], dim=1)
-                
-                xt = self.compress_3(xt)
-                xt_downcross = self.double_conv_3(xt)
-                
-                x_main = xt_downcross + x_main
+        xt1, _ = self.cross_attention_cross_3(x_main, x_prev)
+        xt2, _ = self.cross_attention_self_3(x_main, x_main)
+        xt3, _ = self.cross_attention_cross_3(x_main, x_next)
+        xt = torch.cat([xt1, xt2, xt3], dim=1)
+        
+        xt = self.compress_3(xt)
+        xt_downcross = self.double_conv_3(xt)
+        
+        x_main = xt_downcross + x_main
 
         # main branch의 feature append
         features.append(x_main)
@@ -265,16 +264,15 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
             x_main = b(x_main)
             x_next = b(x_next)
 
-            if i == len(self.layer4) - 1:
-                xt1, _ = self.cross_attention_cross_4(x_main, x_prev)
-                xt2, _ = self.cross_attention_self_4(x_main, x_main)
-                xt3, _ = self.cross_attention_cross_4(x_main, x_next)
-                xt = torch.cat([xt1, xt2, xt3], dim=1)
+        xt1, _ = self.cross_attention_cross_4(x_main, x_prev)
+        xt2, _ = self.cross_attention_self_4(x_main, x_main)
+        xt3, _ = self.cross_attention_cross_4(x_main, x_next)
+        xt = torch.cat([xt1, xt2, xt3], dim=1)
 
-                xt = self.compress_4(xt)
-                xt_downcross = self.double_conv_4(xt)
-                
-                x_main = xt_downcross + x_main
+        xt = self.compress_4(xt)
+        xt_downcross = self.double_conv_4(xt)
+        
+        x_main = xt_downcross + x_main
 
         # main branch의 feature append
         features.append(x_main)
