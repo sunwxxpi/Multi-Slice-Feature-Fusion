@@ -392,17 +392,21 @@ class PyramidVisionTransformerImpr(nn.Module):
         self.num_heads = 16
 
         # stage3용 Non-Local Block
+        self.cross_attention_prev_3 = NonLocalBlock(in_channels=320, inter_channels=160, 
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.cross_attention_self_3 = NonLocalBlock(in_channels=320, inter_channels=160, 
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
-        self.cross_attention_cross_3 = NonLocalBlock(in_channels=320, inter_channels=160, 
+        self.cross_attention_next_3 = NonLocalBlock(in_channels=320, inter_channels=160, 
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.compress_3 = nn.Conv2d(960, 320, kernel_size=1, bias=False)
         self.double_conv_3 = DoubleConv(320, 320, 320)
 
         # stage4용 Non-Local Block
+        self.cross_attention_prev_4 = NonLocalBlock(in_channels=512, inter_channels=256,
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.cross_attention_self_4 = NonLocalBlock(in_channels=512, inter_channels=256,
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
-        self.cross_attention_cross_4 = NonLocalBlock(in_channels=512, inter_channels=256,
+        self.cross_attention_next_4 = NonLocalBlock(in_channels=512, inter_channels=256,
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.compress_4 = nn.Conv2d(1536, 512, kernel_size=1, bias=False)
         self.double_conv_4 = DoubleConv(512, 512, 512)
@@ -529,9 +533,9 @@ class PyramidVisionTransformerImpr(nn.Module):
         x_main = x_main.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous() # (16, (512/16)*(512/16), 320) -> (16, 320, (512/16), (512/16))
         x_next = x_next.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         
-        xt_1, _ = self.cross_attention_cross_3(x_main, x_prev)
+        xt_1, _ = self.cross_attention_prev_3(x_main, x_prev)
         xt_2, _ = self.cross_attention_self_3(x_main, x_main)
-        xt_3, _ = self.cross_attention_cross_3(x_main, x_next)
+        xt_3, _ = self.cross_attention_next_3(x_main, x_next)
         xt = torch.cat([xt_1, xt_2, xt_3], dim=1)
         
         xt = self.compress_3(xt)
@@ -559,9 +563,9 @@ class PyramidVisionTransformerImpr(nn.Module):
         x_main = x_main.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous() # (16, (512/32)*(512/32), 512) -> (16, 512, (512/32), (512/32))
         x_next = x_next.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         
-        xt_1, _ = self.cross_attention_cross_4(x_main, x_prev)
+        xt_1, _ = self.cross_attention_prev_4(x_main, x_prev)
         xt_2, _ = self.cross_attention_self_4(x_main, x_main)
-        xt_3, _ = self.cross_attention_cross_4(x_main, x_next)
+        xt_3, _ = self.cross_attention_next_4(x_main, x_next)
         xt = torch.cat([xt_1, xt_2, xt_3], dim=1)
         
         xt = self.compress_4(xt)
