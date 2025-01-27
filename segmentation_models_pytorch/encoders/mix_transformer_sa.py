@@ -11,11 +11,150 @@
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from functools import partial
 
 from timm.layers import DropPath, to_2tuple, trunc_normal_
 
-from .mix_transformer_sa import MixVisionTransformerSAEncoder
+
+def window_partition(x, window_size):
+    # x: (B, C, H, W)
+    B, C, H, W = x.shape
+    num_win_h = H // window_size
+    num_win_w = W // window_size
+    x = x.view(B, C, num_win_h, window_size, num_win_w, window_size)
+    # permute to (B, num_win_h, num_win_w, C, window_size, window_size)
+    x = x.permute(0, 2, 4, 1, 3, 5).contiguous()
+    # merge windows
+    x = x.view(B * num_win_h * num_win_w, C, window_size, window_size)
+    
+    return x
+
+def window_unpartition(x, window_size, H, W, B):
+    # x: (B*num_win_h*num_win_w, C, window_size, window_size)
+    C = x.size(1)
+    num_win_h = H // window_size
+    num_win_w = W // window_size
+    x = x.view(B, num_win_h, num_win_w, C, window_size, window_size)
+    # permute back
+    x = x.permute(0, 3, 1, 4, 2, 5).contiguous()
+    # reshape
+    x = x.view(B, C, H, W)
+    
+    return x
+
+class NonLocalBlock(nn.Module):
+    def __init__(self, in_channels, inter_channels=None, num_heads=8, window_size=8, num_global_tokens=1):
+        super(NonLocalBlock, self).__init__()
+        self.in_channels = in_channels
+        self.inter_channels = inter_channels or in_channels // 2
+        self.num_heads = num_heads
+        self.window_size = window_size
+        self.num_global_tokens = num_global_tokens
+
+        assert self.inter_channels % self.num_heads == 0, "inter_channels should be divisible by num_heads"
+        self.head_dim = self.inter_channels // self.num_heads
+
+        self.query_conv = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
+        self.key_conv = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
+        self.value_conv = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
+
+        self.global_tokens = nn.Parameter(torch.randn(self.num_global_tokens, self.inter_channels))
+        
+        self.W_z = nn.Sequential(
+            nn.Conv2d(self.inter_channels, self.in_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(self.in_channels)
+        )
+        nn.init.constant_(self.W_z[1].weight, 0)
+        nn.init.constant_(self.W_z[1].bias, 0)
+
+    def forward(self, x_thisBranch, x_otherBranch):
+        B, C, H, W = x_thisBranch.size()
+        
+        """ # (1) 윈도우 분할 대신, 전체 (H×W)에 대한 쿼리/키/값 생성
+        #     -> 기존 window_partition 제거
+        query = self.query_conv(x_otherBranch)   # (B, inter_channels, H, W)
+        key   = self.key_conv(x_thisBranch)      # (B, inter_channels, H, W)
+        value = self.value_conv(x_thisBranch)    # (B, inter_channels, H, W)
+
+        # (2) Multi-head을 위해 (B, inter_channels, H, W)를 (B, num_heads, head_dim, H*W)로 변환
+        #     그리고 (B, num_heads, H*W, head_dim) 형태가 되도록 permute
+        N = H * W  # 전체 픽셀 수
+        query = query.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
+        key   = key.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
+        value = value.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
+
+        # (3) 어텐션 스코어 계산
+        #     attention_scores: (B, num_heads, (num_global_tokens + N), (num_global_tokens + N))
+        attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (self.head_dim ** 0.5)
+        attention_weights = F.softmax(attention_scores, dim=-1)
+
+        # (4) 어텐션 결과(문맥 벡터) 계산
+        #     out: (B, num_heads, (num_global_tokens + N), head_dim)
+        out = torch.matmul(attention_weights, value)
+
+        # (5) 다시 (B, inter_channels, H, W) 형태로 복원
+        out = out.permute(0, 1, 3, 2).contiguous()  # (B, num_heads, head_dim, N)
+        out = out.view(B, self.inter_channels, H, W)
+
+        # (6) 최종 projection
+        z = self.W_z(out)  # (B, C, H, W) """
+
+        # 윈도우 분할
+        x_this_win = window_partition(x_thisBranch, self.window_size)
+        x_other_win = window_partition(x_otherBranch, self.window_size)
+
+        # 쿼리, 키, 값 생성
+        query = self.query_conv(x_other_win)
+        key = self.key_conv(x_this_win)
+        value = self.value_conv(x_this_win)
+
+        B_win = query.shape[0]
+        N = self.window_size * self.window_size
+
+        # 멀티헤드를 위한 차원 변환
+        query = query.view(B_win, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B_win, num_heads, N, head_dim)
+        key = key.view(B_win, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)      # (B_win, num_heads, N, head_dim)
+        value = value.view(B_win, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B_win, num_heads, N, head_dim)
+
+        # 글로벌 토큰 추가
+        global_tokens = self.global_tokens.unsqueeze(0).expand(B_win, -1, -1)
+        global_tokens = global_tokens.view(B_win, self.num_heads, self.num_global_tokens, self.head_dim)
+        query = torch.cat([global_tokens, query], dim=2)  # (B_win, num_heads, num_global_tokens + N, head_dim)
+        key = torch.cat([global_tokens, key], dim=2)
+        value = torch.cat([global_tokens, value], dim=2)
+
+        # 어텐션 계산
+        attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (self.head_dim ** 0.5)
+        attention_weights = F.softmax(attention_scores, dim=-1)
+        out = torch.matmul(attention_weights, value)  # (B_win, num_heads, num_global_tokens + N, head_dim)
+
+        # 글로벌 토큰 제거
+        out = out[:, :, self.num_global_tokens:, :]  
+        out = out.permute(0, 1, 3, 2).contiguous().view(B_win, self.inter_channels, self.window_size, self.window_size)
+
+        # 윈도우 되돌리기
+        x_un = window_unpartition(out, self.window_size, H, W, B)
+        z = self.W_z(x_un)
+        
+        return z, attention_weights
+
+class DoubleConv(nn.Module):
+    def __init__(self, in_channels, out_channels, mid_channels=None):
+        super(DoubleConv, self).__init__()
+        if not mid_channels:
+            mid_channels = out_channels
+        self.double_conv = nn.Sequential(
+            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(mid_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        return self.double_conv(x)
 
 
 class LayerNorm(nn.LayerNorm):
@@ -521,14 +660,39 @@ class DWConv(nn.Module):
 from ._base import EncoderMixin  # noqa E402
 
 
-class MixVisionTransformerEncoder(MixVisionTransformer, EncoderMixin):
+class MixVisionTransformerSAEncoder(MixVisionTransformer, EncoderMixin):
     def __init__(self, out_channels, depth=5, **kwargs):
         super().__init__(**kwargs)
         self._out_channels = out_channels
         self._depth = depth
         self._in_channels = 3
+        
+        # Non-local block 파라미터 (예: resnet50 기준)
+        self.window_size = 16
+        self.num_global_tokens = 1
+        self.num_heads = 16
 
-    def get_stages(self):
+        # stage3용 Non-Local Block
+        self.cross_attention_prev_3 = NonLocalBlock(in_channels=320, inter_channels=160, 
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
+        self.cross_attention_self_3 = NonLocalBlock(in_channels=320, inter_channels=160, 
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
+        self.cross_attention_next_3 = NonLocalBlock(in_channels=320, inter_channels=160, 
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
+        self.compress_3 = nn.Conv2d(960, 320, kernel_size=1, bias=False)
+        self.double_conv_3 = DoubleConv(320, 320, 320)
+
+        # stage4용 Non-Local Block
+        self.cross_attention_prev_4 = NonLocalBlock(in_channels=512, inter_channels=256,
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
+        self.cross_attention_self_4 = NonLocalBlock(in_channels=512, inter_channels=256,
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
+        self.cross_attention_next_4 = NonLocalBlock(in_channels=512, inter_channels=256,
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
+        self.compress_4 = nn.Conv2d(1536, 512, kernel_size=1, bias=False)
+        self.double_conv_4 = DoubleConv(512, 512, 512)
+
+    """ def get_stages(self):
         return [
             nn.Identity(),
             nn.Identity(),
@@ -536,161 +700,115 @@ class MixVisionTransformerEncoder(MixVisionTransformer, EncoderMixin):
             nn.Sequential(self.patch_embed2, self.block2, self.norm2),
             nn.Sequential(self.patch_embed3, self.block3, self.norm3),
             nn.Sequential(self.patch_embed4, self.block4, self.norm4),
-        ]
+        ] """
 
     def forward(self, x):
-        stages = self.get_stages()
-
         # create dummy output for the first block
         B, _, H, W = x.shape
         dummy = torch.empty([B, 0, H // 2, W // 2], dtype=x.dtype, device=x.device)
 
         features = []
-        for i in range(self._depth + 1):
-            if i == 1:
-                features.append(dummy)
-            else:
-                x = stages[i](x).contiguous()
-                features.append(x)
+        
+        features.append(x)  # features[0] = 원본 입력
+        
+        features.append(dummy)
+
+        # === 1) 3개 슬라이스 분리 ===
+        x_prev = x[:, 0:1, :, :]
+        x_main = x[:, 1:2, :, :]
+        x_next = x[:, 2:3, :, :]
+        
+        # -----------------------------
+        # 1) stage1: patch_embed1 + block1 + norm1
+        # -----------------------------
+        x_prev = self.patch_embed1(x_prev)
+        x_prev = self.block1(x_prev)
+        x_prev = self.norm1(x_prev).contiguous()
+
+        x_main = self.patch_embed1(x_main)
+        x_main = self.block1(x_main)
+        x_main = self.norm1(x_main).contiguous()
+
+        x_next = self.patch_embed1(x_next)
+        x_next = self.block1(x_next)
+        x_next = self.norm1(x_next).contiguous()
+
+        features.append(x_main)  # features[2]
+        
+        # -----------------------------
+        # 2) stage2: patch_embed2 + block2 + norm2
+        # -----------------------------
+        x_prev = self.patch_embed2(x_prev)
+        x_prev = self.block2(x_prev)
+        x_prev = self.norm2(x_prev).contiguous()
+
+        x_main = self.patch_embed2(x_main)
+        x_main = self.block2(x_main)
+        x_main = self.norm2(x_main).contiguous()
+
+        x_next = self.patch_embed2(x_next)
+        x_next = self.block2(x_next)
+        x_next = self.norm2(x_next).contiguous()
+
+        features.append(x_main)  # features[3]
+        
+        # -----------------------------
+        # 3) stage3: patch_embed3 + block3 + norm3 -> Non-Local
+        # -----------------------------
+        x_prev = self.patch_embed3(x_prev)
+        x_prev = self.block3(x_prev)
+        x_prev = self.norm3(x_prev).contiguous()
+
+        x_main = self.patch_embed3(x_main)
+        x_main = self.block3(x_main)
+        x_main = self.norm3(x_main).contiguous()
+
+        x_next = self.patch_embed3(x_next)
+        x_next = self.block3(x_next)
+        x_next = self.norm3(x_next).contiguous()
+        
+        xt1, _ = self.cross_attention_prev_3(x_main, x_prev)
+        xt2, _ = self.cross_attention_self_3(x_main, x_main)
+        xt3, _ = self.cross_attention_next_3(x_main, x_next)
+
+        xt_cat = torch.cat([xt1, xt2, xt3], dim=1)
+        xt_cat = self.compress_3(xt_cat)
+        xt_downcross = self.double_conv_3(xt_cat)
+        
+        x_main = xt_downcross + x_main
+
+        features.append(x_main)  # features[4]
+        
+        # -----------------------------
+        # 4) stage4: patch_embed4 + block4 + norm4 -> Non-Local
+        # -----------------------------
+        x_prev = self.patch_embed4(x_prev)
+        x_prev = self.block4(x_prev)
+        x_prev = self.norm4(x_prev).contiguous()
+
+        x_next = self.patch_embed4(x_next)
+        x_next = self.block4(x_next)
+        x_next = self.norm4(x_next).contiguous()
+
+        x_main = self.patch_embed4(x_main)
+        x_main = self.block4(x_main)
+        x_main = self.norm4(x_main).contiguous()
+        
+        xt1, _ = self.cross_attention_prev_4(x_main, x_prev)
+        xt2, _ = self.cross_attention_self_4(x_main, x_main)
+        xt3, _ = self.cross_attention_next_4(x_main, x_next)
+
+        xt_cat = torch.cat([xt1, xt2, xt3], dim=1)
+        xt_cat = self.compress_4(xt_cat)
+        xt_downcross = self.double_conv_4(xt_cat)
+        
+        x_main = xt_downcross + x_main
+
+        features.append(x_main)  # features[5]
+                
         return features
 
     def load_state_dict(self, state_dict):
         state_dict.pop("head.weight", None)
         state_dict.pop("head.bias", None)
-        return super().load_state_dict(state_dict)
-
-
-def get_pretrained_cfg(name):
-    return {
-        "url": "https://github.com/qubvel/segmentation_models.pytorch/releases/download/v0.0.2/{}.pth".format(
-            name
-        ),
-        "input_space": "RGB",
-        "input_size": [3, 224, 224],
-        "input_range": [0, 1],
-        "mean": [0.485, 0.456, 0.406],
-        "std": [0.229, 0.224, 0.225],
-    }
-
-
-mix_transformer_encoders = {
-    "mit_b0": {
-        "encoder": MixVisionTransformerEncoder,
-        "pretrained_settings": {"imagenet": get_pretrained_cfg("mit_b0")},
-        "params": dict(
-            out_channels=(3, 0, 32, 64, 160, 256),
-            patch_size=4,
-            embed_dims=[32, 64, 160, 256],
-            num_heads=[1, 2, 5, 8],
-            mlp_ratios=[4, 4, 4, 4],
-            qkv_bias=True,
-            norm_layer=partial(LayerNorm, eps=1e-6),
-            depths=[2, 2, 2, 2],
-            sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0,
-            drop_path_rate=0.1,
-        ),
-    },
-    "mit_b1": {
-        "encoder": MixVisionTransformerEncoder,
-        "pretrained_settings": {"imagenet": get_pretrained_cfg("mit_b1")},
-        "params": dict(
-            out_channels=(3, 0, 64, 128, 320, 512),
-            patch_size=4,
-            embed_dims=[64, 128, 320, 512],
-            num_heads=[1, 2, 5, 8],
-            mlp_ratios=[4, 4, 4, 4],
-            qkv_bias=True,
-            norm_layer=partial(LayerNorm, eps=1e-6),
-            depths=[2, 2, 2, 2],
-            sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0,
-            drop_path_rate=0.1,
-        ),
-    },
-    "mit_b2": {
-        "encoder": MixVisionTransformerEncoder,
-        "pretrained_settings": {"imagenet": get_pretrained_cfg("mit_b2")},
-        "params": dict(
-            out_channels=(3, 0, 64, 128, 320, 512),
-            patch_size=4,
-            embed_dims=[64, 128, 320, 512],
-            num_heads=[1, 2, 5, 8],
-            mlp_ratios=[4, 4, 4, 4],
-            qkv_bias=True,
-            norm_layer=partial(LayerNorm, eps=1e-6),
-            depths=[3, 4, 6, 3],
-            sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0,
-            drop_path_rate=0.1,
-        ),
-    },
-    "mit_b2_sa": {
-        "encoder": MixVisionTransformerSAEncoder,
-        "pretrained_settings": {"imagenet": get_pretrained_cfg("mit_b2")},
-        "params": dict(
-            out_channels=(3, 0, 64, 128, 320, 512),
-            patch_size=4,
-            embed_dims=[64, 128, 320, 512],
-            num_heads=[1, 2, 5, 8],
-            mlp_ratios=[4, 4, 4, 4],
-            qkv_bias=True,
-            norm_layer=partial(LayerNorm, eps=1e-6),
-            depths=[3, 4, 6, 3],
-            sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0,
-            drop_path_rate=0.1,
-        ),
-    },
-    "mit_b3": {
-        "encoder": MixVisionTransformerEncoder,
-        "pretrained_settings": {"imagenet": get_pretrained_cfg("mit_b3")},
-        "params": dict(
-            out_channels=(3, 0, 64, 128, 320, 512),
-            patch_size=4,
-            embed_dims=[64, 128, 320, 512],
-            num_heads=[1, 2, 5, 8],
-            mlp_ratios=[4, 4, 4, 4],
-            qkv_bias=True,
-            norm_layer=partial(LayerNorm, eps=1e-6),
-            depths=[3, 4, 18, 3],
-            sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0,
-            drop_path_rate=0.1,
-        ),
-    },
-    "mit_b4": {
-        "encoder": MixVisionTransformerEncoder,
-        "pretrained_settings": {"imagenet": get_pretrained_cfg("mit_b4")},
-        "params": dict(
-            out_channels=(3, 0, 64, 128, 320, 512),
-            patch_size=4,
-            embed_dims=[64, 128, 320, 512],
-            num_heads=[1, 2, 5, 8],
-            mlp_ratios=[4, 4, 4, 4],
-            qkv_bias=True,
-            norm_layer=partial(LayerNorm, eps=1e-6),
-            depths=[3, 8, 27, 3],
-            sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0,
-            drop_path_rate=0.1,
-        ),
-    },
-    "mit_b5": {
-        "encoder": MixVisionTransformerEncoder,
-        "pretrained_settings": {"imagenet": get_pretrained_cfg("mit_b5")},
-        "params": dict(
-            out_channels=(3, 0, 64, 128, 320, 512),
-            patch_size=4,
-            embed_dims=[64, 128, 320, 512],
-            num_heads=[1, 2, 5, 8],
-            mlp_ratios=[4, 4, 4, 4],
-            qkv_bias=True,
-            norm_layer=partial(LayerNorm, eps=1e-6),
-            depths=[3, 6, 40, 3],
-            sr_ratios=[8, 4, 2, 1],
-            drop_rate=0.0,
-            drop_path_rate=0.1,
-        ),
-    },
-}
+        return super().load_state_dict(state_dict, strict=False)
