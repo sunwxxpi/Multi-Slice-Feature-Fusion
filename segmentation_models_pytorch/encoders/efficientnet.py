@@ -29,6 +29,7 @@ from efficientnet_pytorch.utils import url_map, url_map_advprop, get_model_param
 
 from ._base import EncoderMixin
 
+from .efficientnet_sa import EfficientNetSAEncoder
 
 class EfficientNetEncoder(EfficientNet, EncoderMixin):
     def __init__(self, stage_idxs, out_channels, model_name, depth=5):
@@ -140,6 +141,15 @@ efficient_net_encoders = {
     },
     "efficientnet-b4": {
         "encoder": EfficientNetEncoder,
+        "pretrained_settings": _get_pretrained_settings("efficientnet-b4"),
+        "params": {
+            "out_channels": (3, 48, 32, 56, 160, 448),
+            "stage_idxs": (6, 10, 22, 32),
+            "model_name": "efficientnet-b4",
+        },
+    },
+    "efficientnet-b4_sa": {
+        "encoder": EfficientNetSAEncoder,
         "pretrained_settings": _get_pretrained_settings("efficientnet-b4"),
         "params": {
             "out_channels": (3, 48, 32, 56, 160, 448),
