@@ -31,6 +31,8 @@ from torchvision.models.densenet import DenseNet
 
 from ._base import EncoderMixin
 
+from .densenet_sa import DenseNetSAEncoder
+
 
 class TransitionWithSkip(nn.Module):
     def __init__(self, module):
@@ -134,6 +136,16 @@ densenet_encoders = {
     },
     "densenet201": {
         "encoder": DenseNetEncoder,
+        "pretrained_settings": pretrained_settings["densenet201"],
+        "params": {
+            "out_channels": (3, 64, 256, 512, 1792, 1920),
+            "num_init_features": 64,
+            "growth_rate": 32,
+            "block_config": (6, 12, 48, 32),
+        },
+    },
+    "densenet201_sa": {
+        "encoder": DenseNetSAEncoder,
         "pretrained_settings": pretrained_settings["densenet201"],
         "params": {
             "out_channels": (3, 64, 256, 512, 1792, 1920),
