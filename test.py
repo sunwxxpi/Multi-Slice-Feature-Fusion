@@ -8,7 +8,19 @@ import torch
 import torch.backends.cudnn as cudnn
 import segmentation_models_pytorch as smp
 from glob import glob
-from tester import inference
+from tester import inference, get_attn_hook
+
+def add_encoder_prefix(state_dict, prefix='encoder.'):
+    new_state_dict = {}
+    for key, value in state_dict.items():
+        # key가 'encoder.', 'decoder.', 'segmentation_head.'로 시작하지 않으면 접두어 추가
+        if not key.startswith(("encoder.", "decoder.", "segmentation_head.")):
+            new_key = prefix + key
+        else:
+            new_key = key
+        new_state_dict[new_key] = value
+        
+    return new_state_dict
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='COCA', help='dataset name')
@@ -43,12 +55,12 @@ if __name__ == "__main__":
 
     if args.decoder == 'unet':
         net = smp.Unet(encoder_name=args.encoder,
-                       encoder_weights="imagenet",
+                       encoder_weights=None,
                        in_channels=1,
                        classes=args.num_classes).cuda()
     elif args.decoder == 'segformer':
         net = smp.Segformer(encoder_name=args.encoder,
-                            encoder_weights="imagenet",
+                            encoder_weights=None,
                             in_channels=1,
                             classes=args.num_classes).cuda()
     
@@ -59,8 +71,12 @@ if __name__ == "__main__":
     best_model_path = glob(os.path.join(snapshot_path, '*_best_model.pth'))[0]
     if not best_model_path:
         raise FileNotFoundError(f"Best model not found at {snapshot_path}")
-    net.load_state_dict(torch.load(best_model_path))
-    print(f"Loaded best model from: {best_model_path}")
+    
+    checkpoint = torch.load(best_model_path, map_location='cpu')
+    fixed_state_dict = add_encoder_prefix(checkpoint, prefix="encoder.")
+    
+    net.load_state_dict(fixed_state_dict)
+    print(f"\nLoaded best model from: {best_model_path}")
     
     log_path = os.path.join("./test_log", exp_path, parameter_path)
     os.makedirs(log_path, exist_ok=True)
@@ -77,4 +93,14 @@ if __name__ == "__main__":
     else:
         test_save_path = None
 
+    """ # encoder가 존재한다면, NonLocalBlock들에 대해 forward hook을 등록합니다.
+    if hasattr(net, 'encoder'):
+        net.encoder.cross_attention_prev_3.register_forward_hook(get_attn_hook("stage3_prev"))
+        net.encoder.cross_attention_self_3.register_forward_hook(get_attn_hook("stage3_self"))
+        net.encoder.cross_attention_next_3.register_forward_hook(get_attn_hook("stage3_next"))
+        net.encoder.cross_attention_prev_4.register_forward_hook(get_attn_hook("stage4_prev"))
+        net.encoder.cross_attention_self_4.register_forward_hook(get_attn_hook("stage4_self"))
+        net.encoder.cross_attention_next_4.register_forward_hook(get_attn_hook("stage4_next")) """
+    
+    # 추론 실행
     inference(args, net, test_save_path)
