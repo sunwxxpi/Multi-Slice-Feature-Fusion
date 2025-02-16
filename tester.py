@@ -11,7 +11,7 @@ from torch.cuda.amp import autocast
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 from matplotlib.patches import Rectangle
-from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric
+from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric, SurfaceDistanceMetric
 from datasets.dataset import COCA_dataset, Resize, ToTensor
 
 # 전역 딕셔너리: forward hook을 통해 각 NonLocalBlock의 attention map을 저장
@@ -100,6 +100,9 @@ def compute_metrics_3d(pred_3d, label_3d, num_classes, dice_metric, miou_metric,
     pred_tensor = torch.from_numpy(pred_3d).unsqueeze(0).unsqueeze(0).float().cuda()
     label_tensor = torch.from_numpy(label_3d).unsqueeze(0).unsqueeze(0).float().cuda()
     
+    D, H, W = pred_3d.shape  # 3D 볼륨 크기
+    max_hd_3d = math.sqrt((D-1)**2 + (H-1)**2 + (W-1)**2)  # 3D 공간의 대각선 거리
+    
     metrics_per_class = []
     
     logging.info(f"Metrics for Case: {case_id}")
@@ -120,9 +123,10 @@ def compute_metrics_3d(pred_3d, label_3d, num_classes, dice_metric, miou_metric,
         if gt_sum == 0 and pred_sum == 0:
             status = "(GT==0 & Pred==0)"
         elif gt_sum == 0 and pred_sum > 0:
+            hd = np.nan
             status = "(GT==0 & Pred>0)"
         elif gt_sum > 0 and pred_sum == 0:
-            hd = np.nan
+            hd = max_hd_3d
             status = "(GT>0 & Pred==0)"
         else:
             status = "(GT>0 & Pred>0)"
@@ -308,7 +312,8 @@ def inference(args, model, test_save_path: str = None):
 
     dice_metric = DiceMetric(include_background=True, reduction="mean", ignore_empty=True)
     miou_metric = MeanIoU(include_background=True, reduction="mean", ignore_empty=True)
-    hd_metric = HausdorffDistanceMetric(include_background=True, distance_metric="euclidean", percentile=95)
+    # hd_metric = HausdorffDistanceMetric(include_background=True, distance_metric="euclidean", percentile=95)
+    hd_metric = SurfaceDistanceMetric(include_background=True, symmetric=True, distance_metric="euclidean")
 
     metric_list_per_case = []
     
