@@ -1,4 +1,5 @@
 import logging
+import math
 import numpy as np
 import SimpleITK as sitk
 import torch
@@ -6,7 +7,7 @@ from torch.cuda.amp import autocast
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
 from scipy.ndimage import zoom
-from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric
+from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric, SurfaceDistanceMetric
 from datasets.dataset import COCA_dataset, ToTensor
 
 def process_slice(slice_2d, model, patch_size):
@@ -30,6 +31,7 @@ def process_slice(slice_2d, model, patch_size):
 def test_single_volume(image, label, model, classes, patch_size, dice_metric, miou_metric, hd_metric, test_save_path=None, case=None, z_spacing=1):
     image_np, label_np = image.squeeze().cpu().detach().numpy(), label.squeeze().cpu().detach().numpy()
     D, H, W = image_np.shape
+    max_hd_3d = math.sqrt((D-1)**2 + (H-1)**2 + (W-1)**2)
     prediction_3d = np.zeros_like(label_np, dtype=np.uint8)
 
     for d in range(D):
@@ -60,9 +62,10 @@ def test_single_volume(image, label, model, classes, patch_size, dice_metric, mi
         if gt_sum == 0 and pred_sum == 0:
             status = "(GT==0 & Pred==0)"
         elif gt_sum == 0 and pred_sum > 0:
+            hd = np.nan
             status = "(GT==0 & Pred>0)"
         elif gt_sum > 0 and pred_sum == 0:
-            hd = np.nan
+            hd = max_hd_3d
             status = "(GT>0 & Pred==0)"
         else:
             status = "(GT>0 & Pred>0)"
@@ -91,7 +94,8 @@ def inference(args, model, test_save_path=None):
 
     dice_metric = DiceMetric(include_background=True, reduction="mean", ignore_empty=True)
     miou_metric = MeanIoU(include_background=True, reduction="mean", ignore_empty=True)
-    hd_metric = HausdorffDistanceMetric(include_background=True, distance_metric="euclidean", percentile=95)
+    # hd_metric = HausdorffDistanceMetric(include_background=True, distance_metric="euclidean", percentile=95)
+    hd_metric = SurfaceDistanceMetric(include_background=False, symmetric=True, distance_metric="euclidean")
 
     metrics_3d_all = []
 
