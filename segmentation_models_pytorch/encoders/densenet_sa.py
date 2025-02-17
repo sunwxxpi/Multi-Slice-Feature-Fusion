@@ -324,7 +324,7 @@ class DenseNetSAEncoder(DenseNet, EncoderMixin):
                     xt_cat = self.compress_5(xt_cat)
                     xt_downcross = self.double_conv_5(xt_cat)
 
-                    x_main = xt_downcross + x_main  # Residual Connection
+                    skip_main = xt_downcross + x_main  # Residual Connection
 
                 features.append(skip_main)  # 저장 (Stage 4, 5에서 Attention 적용 후 저장)
 
