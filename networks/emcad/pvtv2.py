@@ -60,7 +60,7 @@ class NonLocalBlock(nn.Module):
     def forward(self, x_thisBranch, x_otherBranch):
         B, C, H, W = x_thisBranch.size()
         
-        """ # (1) 윈도우 분할 대신, 전체 (H×W)에 대한 쿼리/키/값 생성
+        # (1) 윈도우 분할 대신, 전체 (H×W)에 대한 쿼리/키/값 생성
         #     -> 기존 window_partition 제거
         query = self.query_conv(x_otherBranch)   # (B, inter_channels, H, W)
         key   = self.key_conv(x_thisBranch)      # (B, inter_channels, H, W)
@@ -87,9 +87,9 @@ class NonLocalBlock(nn.Module):
         out = out.view(B, self.inter_channels, H, W)
 
         # (6) 최종 projection
-        z = self.W_z(out)  # (B, C, H, W) """
+        z = self.W_z(out)  # (B, C, H, W)
 
-        # 윈도우 분할
+        """ # 윈도우 분할
         x_this_win = window_partition(x_thisBranch, self.window_size)
         x_other_win = window_partition(x_otherBranch, self.window_size)
 
@@ -124,7 +124,7 @@ class NonLocalBlock(nn.Module):
 
         # 윈도우 되돌리기
         x_un = window_unpartition(out, self.window_size, H, W, B)
-        z = self.W_z(x_un)
+        z = self.W_z(x_un) """
         
         return z, attention_weights
     

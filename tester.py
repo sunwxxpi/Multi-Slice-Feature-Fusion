@@ -207,74 +207,44 @@ def visualize_attention(attn_dict, input_image, label, file_name, save_path):
     q_coord = (q_row, q_col)  # 내부 계산용 (원본 이미지 기준)
     query_text = f"(Query: ({q_col}, {H - q_row}))"  # 시각적 표기를 위해
 
-    # 4. 각 stage별 시각화 대상 key 설정  
-    stage3_keys = ["stage3_prev", "stage3_self", "stage3_next"]
-    stage4_keys = ["stage4_prev", "stage4_self", "stage4_next"]
+    # Define keys to process individually
+    all_stage_keys = ["stage3_prev", "stage3_self", "stage3_next",
+                      "stage4_prev", "stage4_self", "stage4_next"]
 
-    # 2행 3열 subplot 생성 (첫 행: stage3, 두 번째 행: stage4)
-    fig, axs = plt.subplots(2, 3, figsize=(18, 10))
+    # Normalize main image to uint8
+    main_img_norm = (main_img - main_img.min()) / (main_img.max()-main_img.min()+1e-8)
+    main_img_uint8 = np.uint8(main_img_norm * 255)
+    main_img_color = cv2.cvtColor(main_img_uint8, cv2.COLOR_GRAY2BGR)
 
-    # 5. 각 stage 및 각 key에 대해 attention map 처리 및 시각화
-    for row_idx, (stage_keys, grid_count) in enumerate(zip([stage3_keys, stage4_keys], [32, 16])):
-        for col_idx, key in enumerate(stage_keys):
-            ax = axs[row_idx, col_idx]
-            if key in attn_dict:
-                attn = attn_dict[key]  # shape: (B, num_heads, N, N)
-                N = attn.shape[-1]
-                H_feat = int(math.sqrt(N))
-                W_feat = H_feat  # (H_feat == W_feat)
-                
-                # feature map와 원본 이미지 간의 스케일 계산
-                scale_row_attn = H / H_feat
-                scale_col_attn = W / W_feat
+    for key in all_stage_keys:
+        if key in attn_dict:
+            attn = attn_dict[key]
+            N = attn.shape[-1]
+            H_feat = int(math.sqrt(N))
+            W_feat = H_feat  # square feature map
 
-                # center slice의 병변 영역 query 위치를 feature map 해상도로 변환 후 flatten하여 q_index 계산
-                q_row_feat = int(q_coord[0] / scale_row_attn)
-                q_col_feat = int(q_coord[1] / scale_col_attn)
-                q_index = q_row_feat * W_feat + q_col_feat
+            scale_row_attn = H / H_feat
+            scale_col_attn = W / W_feat
 
-                # **Query 기반**으로 attention 분포 추출: 
-                # center slice의 특정 query 위치(q_index)가 인접 slice의 어느 key 위치에 집중하는지 확인
-                attn_specific = attn[:, :, q_index, :]  # shape: (B, num_heads, N)
-                attn_specific_avg = attn_specific.mean(dim=1)[0].numpy()  # (N,)
-                attn_map_feat = attn_specific_avg.reshape(H_feat, W_feat)
-                attn_map_resized = cv2.resize(attn_map_feat, (W, H))
-                attn_map_resized = (attn_map_resized - attn_map_resized.min()) / (
-                    attn_map_resized.max() - attn_map_resized.min() + 1e-8
-                )
+            q_row_feat = int(q_coord[0] / scale_row_attn)
+            q_col_feat = int(q_coord[1] / scale_col_attn)
+            q_index = q_row_feat * W_feat + q_col_feat
 
-                # center slice 이미지와 attention map overlay
-                ax.imshow(main_img, cmap='gray')
-                ax.imshow(attn_map_resized, cmap='jet', alpha=0.5)
-                ax.set_title(f"{key}\n{query_text}", fontsize=10)
-                ax.axis('off')
+            attn_specific = attn[:, :, q_index, :]  # shape: (B, num_heads, N)
+            attn_specific_avg = attn_specific.mean(dim=1)[0].numpy()
+            attn_map_feat = attn_specific_avg.reshape(H_feat, W_feat)
+            attn_map_resized = cv2.resize(attn_map_feat, (W, H))
+            attn_map_resized = (attn_map_resized - attn_map_resized.min()) / (
+                attn_map_resized.max() - attn_map_resized.min() + 1e-8
+            )
 
-                # grid overlay: 원본 이미지 해상도에 따른 grid cell 크기 계산
-                cell_w = W / grid_count
-                cell_h = H / grid_count
-                for i in range(1, grid_count):
-                    x = i * cell_w
-                    ax.axvline(x=x, color='white', linewidth=1, alpha=0.8)
-                for i in range(1, grid_count):
-                    y = i * cell_h
-                    ax.axhline(y=y, color='white', linewidth=1, alpha=0.8)
-
-                # q_index를 기준으로 grid 내 query patch의 위치 결정 (객관적 비교를 위해)
-                q_row_grid = q_index // grid_count
-                q_col_grid = q_index % grid_count
-                rect_x = q_col_grid * cell_w
-                rect_y = q_row_grid * cell_h
-                rect = Rectangle((rect_x, rect_y), cell_w, cell_h,
-                                 edgecolor='red', facecolor='none', linewidth=2)
-                ax.add_patch(rect)
-            else:
-                ax.set_title(f"{key} not available", fontsize=10)
-                ax.axis('off')
-
-    plt.tight_layout()
-    save_file = os.path.join(save_path, f"{file_name}_attn_query.png")
-    plt.savefig(save_file, dpi=300)
-    plt.close(fig)
+            attn_map_norm = (attn_map_resized - attn_map_resized.min()) / (attn_map_resized.max()-attn_map_resized.min()+1e-8)
+            attn_map_uint8 = np.uint8(attn_map_norm * 255)
+            attn_color = cv2.applyColorMap(attn_map_uint8, cv2.COLORMAP_JET)
+            overlay = cv2.addWeighted(main_img_color, 0.5, attn_color, 0.5, 0)
+            save_file = os.path.join(save_path, f"{file_name}_{key}.png")
+            cv2.imwrite(save_file, overlay)
+        # If key is missing, do nothing.
 
 def inference(args, model, test_save_path: str = None):
     test_transform = T.Compose([Resize(output_size=[args.img_size, args.img_size]),
@@ -303,10 +273,11 @@ def inference(args, model, test_save_path: str = None):
         img_2d = image.squeeze(0).cpu().numpy()
         pred_2d, label_2d = run_inference_on_slice(image, label, model)
         
-        """ # attention hook을 통해 저장된 정보를 이용해 "특정 query 픽셀" 기반의 attention 시각화 (center slice의 레이블 전달)
-        visualize_attention(attn_dict, img_2d, label_2d, full_case_name, attn_vis_dir)
-        # 다음 샘플을 위해 attn_dict 초기화
-        attn_dict.clear() """
+        if full_case_name in ['case0008_slice013', 'case0008_slice014', 'case0008_slice015', 'case0008_slice016']:
+            # attention hook을 통해 저장된 정보를 이용해 "특정 query 픽셀" 기반의 attention 시각화 (center slice의 레이블 전달)
+            visualize_attention(attn_dict, img_2d, label_2d, full_case_name, attn_vis_dir)
+            # 다음 샘플을 위해 attn_dict 초기화
+            attn_dict.clear()
         
         accumulate_slice_prediction(image_slices_dict, pred_slices_dict, label_slices_dict, case_id, slice_id, pred_2d, label_2d, img_2d)
 

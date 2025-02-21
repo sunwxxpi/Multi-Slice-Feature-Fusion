@@ -8,7 +8,7 @@ import torch
 import torch.backends.cudnn as cudnn
 from glob import glob
 from networks.emcad.networks import EMCAD_SA_Net
-from tester import inference
+from tester import inference, get_attn_hook
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='COCA', help='dataset name')
@@ -95,4 +95,12 @@ if __name__ == "__main__":
     else:
         test_save_path = None
 
+    # encoder가 존재한다면, NonLocalBlock들에 대해 forward hook을 등록합니다.
+    net.backbone.cross_attention_prev_3.register_forward_hook(get_attn_hook("stage3_prev"))
+    net.backbone.cross_attention_self_3.register_forward_hook(get_attn_hook("stage3_self"))
+    net.backbone.cross_attention_next_3.register_forward_hook(get_attn_hook("stage3_next"))
+    net.backbone.cross_attention_prev_4.register_forward_hook(get_attn_hook("stage4_prev"))
+    net.backbone.cross_attention_self_4.register_forward_hook(get_attn_hook("stage4_self"))
+    net.backbone.cross_attention_next_4.register_forward_hook(get_attn_hook("stage4_next"))
+        
     inference(args, net, test_save_path)
