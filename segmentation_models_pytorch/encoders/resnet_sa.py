@@ -7,12 +7,40 @@ from ._base import EncoderMixin
 
 torch.backends.cudnn.benchmark = True
 
+def window_partition(x, window_size):
+    # x: (B, C, H, W)
+    B, C, H, W = x.shape
+    num_win_h = H // window_size
+    num_win_w = W // window_size
+    x = x.view(B, C, num_win_h, window_size, num_win_w, window_size)
+    # permute to (B, num_win_h, num_win_w, C, window_size, window_size)
+    x = x.permute(0, 2, 4, 1, 3, 5).contiguous()
+    # merge windows
+    x = x.view(B * num_win_h * num_win_w, C, window_size, window_size)
+    
+    return x
+
+def window_unpartition(x, window_size, H, W, B):
+    # x: (B*num_win_h*num_win_w, C, window_size, window_size)
+    C = x.size(1)
+    num_win_h = H // window_size
+    num_win_w = W // window_size
+    x = x.view(B, num_win_h, num_win_w, C, window_size, window_size)
+    # permute back
+    x = x.permute(0, 3, 1, 4, 2, 5).contiguous()
+    # reshape
+    x = x.view(B, C, H, W)
+    
+    return x
+
 class NonLocalBlock(nn.Module):
     def __init__(self, in_channels, inter_channels=None, num_heads=8, window_size=8, num_global_tokens=1):
         super(NonLocalBlock, self).__init__()
         self.in_channels = in_channels
         self.inter_channels = inter_channels or in_channels // 2
         self.num_heads = num_heads
+        self.window_size = window_size
+        self.num_global_tokens = num_global_tokens
 
         assert self.inter_channels % self.num_heads == 0, "inter_channels should be divisible by num_heads"
         self.head_dim = self.inter_channels // self.num_heads
@@ -21,6 +49,8 @@ class NonLocalBlock(nn.Module):
         self.key_conv = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
         self.value_conv = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
 
+        self.global_tokens = nn.Parameter(torch.randn(self.num_global_tokens, self.inter_channels))
+        
         self.W_z = nn.Sequential(
             nn.Conv2d(self.inter_channels, self.in_channels, kernel_size=1, bias=False),
             nn.BatchNorm2d(self.in_channels)
@@ -34,7 +64,7 @@ class NonLocalBlock(nn.Module):
         query = self.query_conv(x_otherBranch)   # (B, inter_channels, H, W)
         key   = self.key_conv(x_thisBranch)      # (B, inter_channels, H, W)
         value = self.value_conv(x_thisBranch)    # (B, inter_channels, H, W)
-
+        
         N = H * W  # 전체 픽셀 수
         query = query.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
         key   = key.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
@@ -50,6 +80,43 @@ class NonLocalBlock(nn.Module):
 
         z = self.W_z(out) # (B, C, H, W)
 
+        """ # 윈도우 분할
+        x_this_win = window_partition(x_thisBranch, self.window_size)
+        x_other_win = window_partition(x_otherBranch, self.window_size)
+
+        # 쿼리, 키, 값 생성
+        query = self.query_conv(x_other_win)
+        key = self.key_conv(x_this_win)
+        value = self.value_conv(x_this_win)
+
+        B_win = query.shape[0]
+        N = self.window_size * self.window_size
+
+        # 멀티헤드를 위한 차원 변환
+        query = query.view(B_win, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B_win, num_heads, N, head_dim)
+        key = key.view(B_win, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)      # (B_win, num_heads, N, head_dim)
+        value = value.view(B_win, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B_win, num_heads, N, head_dim)
+
+        # 글로벌 토큰 추가
+        global_tokens = self.global_tokens.unsqueeze(0).expand(B_win, -1, -1)
+        global_tokens = global_tokens.view(B_win, self.num_heads, self.num_global_tokens, self.head_dim)
+        query = torch.cat([global_tokens, query], dim=2)  # (B_win, num_heads, num_global_tokens + N, head_dim)
+        key = torch.cat([global_tokens, key], dim=2)
+        value = torch.cat([global_tokens, value], dim=2)
+
+        # 어텐션 계산
+        attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (self.head_dim ** 0.5)
+        attention_weights = F.softmax(attention_scores, dim=-1)
+        out = torch.matmul(attention_weights, value)  # (B_win, num_heads, num_global_tokens + N, head_dim)
+
+        # 글로벌 토큰 제거
+        out = out[:, :, self.num_global_tokens:, :]  
+        out = out.permute(0, 1, 3, 2).contiguous().view(B_win, self.inter_channels, self.window_size, self.window_size)
+
+        # 윈도우 되돌리기
+        x_un = window_unpartition(out, self.window_size, H, W, B)
+        z = self.W_z(x_un) """
+        
         return z, attention_weights
 
 class DoubleConv(nn.Module):
@@ -88,16 +155,22 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         self.num_heads = 8
 
         # layer3용 Non-Local Block
-        self.cross_attention_prev_3 = NonLocalBlock(in_channels=1024, inter_channels=512, num_heads=self.num_heads)
-        self.cross_attention_self_3 = NonLocalBlock(in_channels=1024, inter_channels=512, num_heads=self.num_heads)
-        self.cross_attention_next_3 = NonLocalBlock(in_channels=1024, inter_channels=512, num_heads=self.num_heads)
+        self.cross_attention_prev_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
+        self.cross_attention_self_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
+        self.cross_attention_next_3 = NonLocalBlock(in_channels=1024, inter_channels=512, 
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.compress_3 = nn.Conv2d(3072, 1024, kernel_size=1, bias=False)
         self.double_conv_3 = DoubleConv(1024, 1024, 1024)
 
         # layer4용 Non-Local Block
-        self.cross_attention_prev_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,num_heads=self.num_heads)
-        self.cross_attention_self_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,num_heads=self.num_heads)
-        self.cross_attention_next_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,num_heads=self.num_heads)
+        self.cross_attention_prev_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
+        self.cross_attention_self_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
+        self.cross_attention_next_4 = NonLocalBlock(in_channels=2048, inter_channels=1024,
+                                                    num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.compress_4 = nn.Conv2d(6144, 2048, kernel_size=1, bias=False)
         self.double_conv_4 = DoubleConv(2048, 2048, 2048)
 
