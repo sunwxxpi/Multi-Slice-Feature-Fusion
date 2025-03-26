@@ -28,7 +28,8 @@ def random_rotate(image, label):
     
     return image, label
 
-def ct_normalization(image, lower=1017, upper=1801, mean=1222.90087890625, std=132.62820434570312):
+# def ct_normalization(image, lower=1017, upper=1801, mean=1222.90087890625, std=132.62820434570312):
+def ct_normalization(image, lower=-2.0, upper=1521.0, mean=355.3804931640625, std=282.9181213378906):
     np.clip(image, lower, upper, out=image)
     image = (image - mean) / max(std, 1e-8)
 
