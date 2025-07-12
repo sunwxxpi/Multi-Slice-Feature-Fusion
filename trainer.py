@@ -58,6 +58,7 @@ def trainer_coca(args, model, snapshot_path):
     
     dice_loss_class = DiceLoss(num_classes)
     ce_loss_class = CrossEntropyLoss()
+    # ce_loss_class = LocalSampleLoss(background_ratio=0.05)
     # optimizer = optim.SGD(model.parameters(), lr=base_lr, weight_decay=3e-5, momentum=0.99, nesterov=True)
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
     

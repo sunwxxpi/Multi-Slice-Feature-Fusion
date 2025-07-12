@@ -156,3 +156,38 @@ class DiceLoss(nn.Module):
         
         # Background를 제외한 클래스 수로 나눠서 평균 계산
         return loss / (self.n_classes - 1)
+    
+class LocalSampleLoss(nn.Module):
+    def __init__(self, background_ratio=0.1):
+        """
+        Local Sample Loss
+        :param background_ratio: 배경 샘플 중 사용할 비율 (0.0 ~ 1.0)
+        """
+        super(LocalSampleLoss, self).__init__()
+        self.background_ratio = background_ratio
+
+    def forward(self, predictions, targets):
+        # 만약 targets의 차원이 3이면 [N, H, W] 형태이므로 one-hot 인코딩 수행
+        if targets.dim() == 3:
+            # targets를 정수형으로 변환한 후 one-hot 인코딩 (클래스 수는 2)
+            targets = F.one_hot(targets.long(), num_classes=2)  # [N, H, W, 2]
+            # 채널 차원을 앞으로 가져와 [N, 2, H, W]로 변환
+            targets = targets.permute(0, 3, 1, 2).float()
+        
+        # Binary Cross-Entropy Loss 계산
+        bce_loss = F.binary_cross_entropy_with_logits(predictions, targets, reduction='none')
+        
+        # Local Sample Mask 생성
+        with torch.no_grad():
+            positive_mask = (targets > 0).float()  # 양성 샘플
+            background_mask = (targets == 0).float()  # 배경 샘플
+            
+            # 배경 샘플 중 일부를 랜덤하게 선택
+            sampled_background_mask = background_mask * (torch.rand_like(targets) < self.background_ratio).float()
+            
+            # 양성 샘플과 선택된 배경 샘플을 결합
+            sampling_mask = positive_mask + sampled_background_mask
+        
+        # Mask를 적용하여 손실 계산
+        sampled_loss = bce_loss * sampling_mask
+        return sampled_loss.mean()
