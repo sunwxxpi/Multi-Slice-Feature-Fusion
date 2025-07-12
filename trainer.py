@@ -11,7 +11,7 @@ from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 from tqdm import tqdm
-from utils import PolyLRScheduler, DiceLoss
+from utils import PolyLRScheduler, CosineAnnealingWarmupRestarts, DiceLoss, LocalSampleLoss
 from datasets.dataset import shuffle_within_batch, COCA_dataset, RandomAugmentation, Resize, ToTensor
 
 def trainer_coca(args, model, snapshot_path):
@@ -63,6 +63,7 @@ def trainer_coca(args, model, snapshot_path):
     
     max_iterations = args.max_epochs * len(trainloader)
     scheduler = PolyLRScheduler(optimizer, initial_lr=base_lr, max_steps=max_iterations)
+    # scheduler = CosineAnnealingWarmupRestarts(optimizer, first_cycle_steps=60, cycle_mult=1.0, max_lr=1e-4, min_lr=1e-6, warmup_steps=15, gamma=0.5)
     
     writer = SummaryWriter(snapshot_path + '/log')
     logging.info("{} iterations per epoch. {} max iterations ".format(len(trainloader), max_iterations))
@@ -119,6 +120,9 @@ def trainer_coca(args, model, snapshot_path):
 
                 labels = label_batch[1, ...].unsqueeze(0) * 50
                 writer.add_image('train/GroundTruth', labels, iter_num)
+                
+        # scheduler.step()
+        # current_lr = scheduler.optimizer.param_groups[0]['lr']
 
         train_dice_loss /= len(trainloader)
         train_ce_loss /= len(trainloader)
