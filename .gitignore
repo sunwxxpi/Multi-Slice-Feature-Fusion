@@ -8,3 +8,7 @@ data
 model
 
 test_log
+
+*.png
+*.docx
+*.pdf

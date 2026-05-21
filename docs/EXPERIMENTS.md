@@ -5,7 +5,7 @@
 ### 1.1 Single hold-out (기존 기본 경로)
 
 ```bash
-python train.py \
+CUDA_VISIBLE_DEVICES=0 python train.py \
   --dataset COCA \
   --root_path /path/to/COCA_3frames/train_npz \
   --list_dir  /path/to/COCA_3frames/lists_COCA \
@@ -19,24 +19,18 @@ python train.py \
   --exp_setting review_msffm_resnet50_unet_fold0_seed42
 ```
 
+- 모든 명령은 `CUDA_VISIBLE_DEVICES=0` 로 GPU 1개에 핀한다 — 미지정 시 다중 GPU 환경에서 DataParallel 이 보이는 GPU 를 전부 잡는다 (§5).
 - 인자 기본값은 원고 §2.3 의 학습 설정과 일치한다 (AdamW, lr=1e-5, batch=16, 300 epochs, PolyLR, MHA heads=8).
 - 학습이 시작되면 `./{NetClass}_{encoder}_model_summary.txt` 로 `torchinfo.summary` 결과가 덮어쓰기 저장된다 (저장소 루트). 모델 구조 비교용.
 
 ### 1.2 5-Fold Stratified CV (`TODO.md` §1 의 권장 워크플로)
 
+§1.1 과 동일하되 hold-out 인자(`--root_path`/`--list_dir`) 대신 5-fold 인자를 쓴다. 공통 인자(`--dataset/--num_classes/--img_size/--batch_size/--base_lr`)는 기본값이라 생략 가능.
+
 ```bash
-python train.py \
-  --dataset COCA \
-  --use_5fold_cv --fold_idx 0 \
-  --encoder   resnet50_sa \
-  --decoder   unet \
-  --num_classes 5 \
-  --img_size  512 \
-  --max_epochs 300 \
-  --batch_size 16 \
-  --base_lr   1e-5 \
-  --early_stopping_patience 50 \
-  --early_stopping_min_delta 0.0 \
+CUDA_VISIBLE_DEVICES=0 python train.py --use_5fold_cv --fold_idx 0 \
+  --encoder resnet50_sa --decoder unet \
+  --max_epochs 300 --early_stopping_patience 50 --early_stopping_min_delta 0.0 \
   --exp_setting review_5fold_msffm_resnet50_unet_fold0_seed42
 ```
 
@@ -50,7 +44,7 @@ python train.py \
 ### 2.1 Single hold-out
 
 ```bash
-python test.py \
+CUDA_VISIBLE_DEVICES=0 python test.py \
   --dataset COCA \
   --root_path /path/to/COCA_3frames/test_npz \
   --list_dir  /path/to/COCA_3frames/lists_COCA \
@@ -66,7 +60,7 @@ python test.py \
 ### 2.2 5-Fold CV
 
 ```bash
-python test.py \
+CUDA_VISIBLE_DEVICES=0 python test.py \
   --dataset COCA \
   --use_5fold_cv --fold_idx 0 \
   --encoder   resnet50_sa \
@@ -88,39 +82,26 @@ python test.py \
 | `default` | 초기 베이스라인 실행 |
 | `kmu_chest` | KMU Chest 코호트로 파인튜닝/평가 한 실험 |
 | `review_msffm_resnet50_unet_fold0_seed42` | 리뷰어 응답용 main run (seed 42, fold 0) |
-| `review_ablation_msffm_stage3_fold0_seed42` | MSFFM 을 stage 3 에만 적용 |
-| `review_ablation_msffm_stage4_fold0_seed42` | MSFFM 을 stage 4 에만 적용 |
-| `review_ablation_msffm_default_stage3_4_self_cross_fold0_seed42` | 기본 (stage 3 & 4, self+cross) |
-| `review_ablation_msffm_self_only_fold0_seed42` | self-attention 만 활성 |
-| `review_ablation_msffm_cross_only_fold0_seed42` | cross-attention 만 활성 |
-| `review_ablation_msffm_no_residual_fold0_seed42` | residual 연결 제거 |
-| `review_ablation_msffm_concat_1x1_only_fold0_seed42` | attention 없이 concat+1x1 만 |
-| `review_ablation_msffm_heads4_fold0_seed42` | MHA heads 를 4 로 |
-| `review_ablation_msffm_inter_ratio_025_fold0_seed42` | inter_channels = in_channels × 0.25 |
 
-새 실험을 만들 때는 이 패턴(`review_[ablation_]<설정>_fold{N}_seed{S}`) 을 따른다.
+새 실험을 만들 때는 이 패턴(`review_<설정>_fold{N}_seed{S}`) 을 따른다.
 
-**5-fold CV 패턴** (`TODO.md` §2 Phase 4, 사용자 확정 — main 5-fold 우선 → ablation 9종 × 5-fold 후속):
+**5-fold CV 패턴** (`TODO.md` §2 Phase 4).
 
-| 이름 (예시) | 의미 |
-|---|---|
-| `review_5fold_msffm_resnet50_unet_fold{0..4}_seed42` | 5-fold 본 실험 (main run, 총 5 trainings) |
-| `review_5fold_ablation_msffm_stage3_fold{0..4}_seed42` | A. MSFFM 을 stage 3 에만 적용 |
-| `review_5fold_ablation_msffm_stage4_fold{0..4}_seed42` | A. MSFFM 을 stage 4 에만 적용 |
-| `review_5fold_ablation_msffm_default_stage3_4_self_cross_fold{0..4}_seed42` | A. full 설정 앵커 |
-| `review_5fold_ablation_msffm_self_only_fold{0..4}_seed42` | B. self-attention 만 |
-| `review_5fold_ablation_msffm_cross_only_fold{0..4}_seed42` | B. cross-attention 만 |
-| `review_5fold_ablation_msffm_concat_1x1_only_fold{0..4}_seed42` | B. attention 없이 concat+1x1 |
-| `review_5fold_ablation_msffm_no_residual_fold{0..4}_seed42` | C. residual skip 제거 |
-| `review_5fold_ablation_msffm_heads4_fold{0..4}_seed42` | C. MHA heads 8 → 4 |
-| `review_5fold_ablation_msffm_inter_ratio_025_fold{0..4}_seed42` | C. inter_channels 비율 0.25 |
+**Main 그리드 — 이 브랜치 실행 가능 8 config (4 encoder × 2 decoder, 전부 +MSFFM `_sa`):** 명명 규약 `review_5fold_msffm_{encoder}_{decoder}_fold{k}_seed42` (encoder 라벨은 `_sa` 생략).
 
-총 (main 1 + ablation 9) × 5 fold = **50 trainings**.
+| encoder (argparse 키) | decoder=unet | decoder=segformer |
+|---|---|---|
+| `resnet50_sa` | `review_5fold_msffm_resnet50_unet_fold{0..4}_seed42` | `review_5fold_msffm_resnet50_segformer_fold{0..4}_seed42` |
+| `densenet201_sa` | `review_5fold_msffm_densenet201_unet_fold{0..4}_seed42` | `review_5fold_msffm_densenet201_segformer_fold{0..4}_seed42` |
+| `efficientnet-b4_sa` | `review_5fold_msffm_efficientnet-b4_unet_fold{0..4}_seed42` | `review_5fold_msffm_efficientnet-b4_segformer_fold{0..4}_seed42` |
+| `mit_b2_sa` | `review_5fold_msffm_mit_b2_unet_fold{0..4}_seed42` | `review_5fold_msffm_mit_b2_segformer_fold{0..4}_seed42` |
+
+→ main = **8 config × 5 fold = 40 trainings**. baseline(비-MSFFM)·PVTv2-b2·ablation 은 본 브랜치 범위에서 제외 (다른 브랜치/추후 추가).
 
 ## 4. 파인튜닝 워크플로 (`--enable_finetuning`)
 
 ```bash
-python train.py \
+CUDA_VISIBLE_DEVICES=0 python train.py \
   --encoder resnet50_sa --decoder unet \
   --exp_setting review_msffm_resnet50_unet_fold0_seed42 \
   --enable_finetuning \
@@ -132,9 +113,11 @@ python train.py \
 - 새 학습 결과는 `--finetune_exp_setting` 디렉터리에 저장. 원본 best 는 보존된다.
 - 학습 자체는 동일한 trainer 가 처음부터 돌리는 형태이므로 LR 스케줄이 리셋된다. 짧은 fine-tune 이 필요하면 `--max_epochs` 도 함께 줄일 것.
 
-## 5. 다중 GPU
+## 5. GPU 핀 — 한 학습 = 한 GPU (중요)
 
-`trainer.py` 는 `torch.cuda.device_count() > 1` 이면 자동으로 `nn.DataParallel` 로 감싼다. 저장 시에는 `model.module.state_dict()` 로 복원되므로 평가 단계의 단일 GPU 로딩이 호환된다. **`DistributedDataParallel` 은 지원하지 않는다** — 도입하려면 trainer 전체를 다시 써야 한다.
+**한 학습(run)은 반드시 단일 GPU 로만 돌린다.** `trainer.py:77-78` 이 `torch.cuda.device_count() > 1` 이면 자동으로 `nn.DataParallel` 로 보이는 GPU 를 전부 잡으므로, 매 실행에 **`CUDA_VISIBLE_DEVICES=0` 또는 `=1` 을 명시**해 GPU 를 1개로 핀할 것 (`device_count()==1` 이 되어 DataParallel 미적용). 두 GPU 가 모두 비어 있으면 `=0`/`=1` 로 **서로 다른 실험을 GPU 별로 동시에** 돌려 처리량을 2배로 올릴 수 있다 (예: fold0→GPU0, fold1→GPU1). main 만 40 trainings 규모라 이 병렬화가 전체 소요 시간을 크게 줄인다.
+
+저장 시에는 (DataParallel 인 경우) `model.module.state_dict()` 로 복원되므로 평가 단계의 단일 GPU 로딩이 호환된다. **`DistributedDataParallel` 은 지원하지 않는다** — 도입하려면 trainer 전체를 다시 써야 한다.
 
 ## 6. 결과 해석
 
@@ -175,31 +158,50 @@ Overall 3D Metrics Across All Cases:
 
 1. **Phase 1~3 완료 확인** — `COCA_3frames_5fold/`(images/labels/lists/hu_stats) 산출 + 코드 수정(`--use_5fold_cv` 분기, `datasets/__init__.py`) 모두 끝나 있어야 함 (`TODO.md` §2~§3).
 2. **Smoke test** — `--fold_idx 0 --max_epochs 2 --early_stopping_patience 0` 로 짧게 1회 학습+평가가 종단간 도는지 확인 (체크포인트 저장 + `results.txt` 생성).
-3. **Main 5-fold** — fold 0~4 학습 5회 → 평가 5회 → `aggregate_5fold_results.py`.
-4. **Ablation 9종 × 5 fold = 45 trainings** — main 5-fold 결과가 안정적으로 확보된 뒤 순차 진행. exp_setting 패턴은 §3 참고.
+3. **Main 5-fold 그리드** — 8 config(4 enc × 2 dec) × fold0~4 = 40 trainings → 평가 40 → config별 `aggregate_5fold_results.py`. 두 GPU 에 4 config 씩 나눠 병렬(§8.2).
 
 ### 8.2 일괄 실행 스크립트 (예시)
 
+> **GPU 규칙(필수, §5):** 한 학습은 GPU 1개로만. `CUDA_VISIBLE_DEVICES` 를 **항상 명시** — 미지정 시 두 GPU 를 DataParallel 로 잡는다.
+
+main 8 config 를 두 GPU 에 4개씩 나눠, 각 GPU 가 자기 몫 config 들의 fold0~4 를 **연속으로**(wave 장벽 없이) 돌린다 — GPU idle 이 거의 없다.
+
 ```bash
-TEMPLATE=review_5fold_msffm_resnet50_unet_fold{fold}_seed42
+# config = "encoder decoder". encoder 는 argparse 의 _sa 키.
+CONFIGS=("resnet50_sa unet" "resnet50_sa segformer"
+         "densenet201_sa unet" "densenet201_sa segformer"
+         "efficientnet-b4_sa unet" "efficientnet-b4_sa segformer"
+         "mit_b2_sa unet" "mit_b2_sa segformer")
 
-for k in 0 1 2 3 4; do
-  python train.py \
-    --use_5fold_cv --fold_idx $k \
-    --encoder resnet50_sa --decoder unet \
-    --max_epochs 300 --early_stopping_patience 50 \
-    --exp_setting review_5fold_msffm_resnet50_unet_fold${k}_seed42
+train_cfg() {  # $1=GPU  $2="encoder decoder"
+  set -- $1 $2; gpu=$1; enc=$2; dec=$3; lab=${enc%_sa}
+  for k in 0 1 2 3 4; do
+    CUDA_VISIBLE_DEVICES=$gpu python train.py --use_5fold_cv --fold_idx $k \
+      --encoder $enc --decoder $dec --max_epochs 300 --early_stopping_patience 50 \
+      --exp_setting review_5fold_msffm_${lab}_${dec}_fold${k}_seed42
+  done
+}
+
+# GPU0 ← 앞 4 config, GPU1 ← 뒤 4 config (동시 진행)
+( for c in "${CONFIGS[@]:0:4}"; do train_cfg 0 "$c"; done ) &
+( for c in "${CONFIGS[@]:4:4}"; do train_cfg 1 "$c"; done ) &
+wait
+```
+
+평가·집계는 학습 완료 후 (평가는 가벼워 단일 GPU 로 충분), config 마다 1회씩:
+
+```bash
+for c in "${CONFIGS[@]}"; do
+  set -- $c; enc=$1; dec=$2; lab=${enc%_sa}
+  for k in 0 1 2 3 4; do
+    CUDA_VISIBLE_DEVICES=0 python test.py --use_5fold_cv --fold_idx $k \
+      --encoder $enc --decoder $dec \
+      --exp_setting review_5fold_msffm_${lab}_${dec}_fold${k}_seed42
+  done
+  python aggregate_5fold_results.py \
+    --exp_template review_5fold_msffm_${lab}_${dec}_fold{fold}_seed42 \
+    --encoder $enc --decoder $dec
 done
-
-for k in 0 1 2 3 4; do
-  python test.py \
-    --use_5fold_cv --fold_idx $k \
-    --encoder resnet50_sa --decoder unet \
-    --exp_setting review_5fold_msffm_resnet50_unet_fold${k}_seed42
-done
-
-python aggregate_5fold_results.py \
-  --exp_template "$TEMPLATE" --encoder resnet50_sa --decoder unet
 ```
 
 ### 8.3 결과 집계 — `aggregate_5fold_results.py`
