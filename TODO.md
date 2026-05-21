@@ -70,22 +70,14 @@
 
 ### Phase 1 — 사전 검증 ✅ 완료 (→ rebuild 전환의 계기)
 
-첫 점검에서 **case_id 충돌**(`train_npz`/`test_npz` 모두 case0001 부터 독립 번호 → 파일명 5,853 개 충돌, 합집합이 433 이 아닌 300)이 드러나 심볼릭 링크/union 이 불가함을 확인 → 전역 인덱스 **rebuild** 로 전환 (= "어쩔 수 없는 상황", 결정 배경 §1.1). rebuild 결과 **433 unique case**, sample 명명 `case{gidx}_slice{n}` 이 `tester.py:parse_case_and_slice_id` 와 호환, vessel 분포가 원고 Table 1 (LCA 149/LAD 382/LCX 246/RCA 256/Total 433) 과 일치함을 확인 (Phase 2 표).
+첫 점검에서 **case_id 충돌**(`train_npz`/`test_npz` 모두 case0001 부터 독립 번호 → 파일명 5,853 개 충돌, 합집합이 433 이 아닌 300)이 드러나 심볼릭 링크/union 이 불가함을 확인 → 전역 인덱스 **rebuild** 로 전환 (= "어쩔 수 없는 상황", 결정 배경 §1.1). rebuild 결과 **433 unique case**, sample 명명 `case{gidx}_slice{n}` 이 `tester.py:parse_case_and_slice_id` 와 호환, vessel 분포가 원고 Table 1 (LCA 149/LAD 382/LCX 246/RCA 256/Total 433) 과 일치함을 확인 (fold 별 분포 표는 `docs/DATA.md §9.2`).
 
 ### Phase 2 — 데이터 자산 생성 (단일 빌더, 저장소 외부 = `/home/psw/AVS-Diagnosis/COCA/`) ✅ 완료
 
 **단일 빌더** `build_5fold_dataset.py` 가 `Dataset001_COCA` 에서 모든 자산을 1회 생성 (per-case `.npy` 볼륨 + `lists_COCA_5fold/` + `hu_stats_433.json` + `case_index.csv`). 산출물 레이아웃·포맷 상세는 `docs/DATA.md §9`. 빌더 핵심: nii → `(D,H,W)` transpose 후 `.npy`, HU 히스토그램 누적, case 별 vessel multi-hot → `MultilabelStratifiedKFold(5, shuffle=True, random_state=42)`.
 
 - [x] `iterative-stratification` 설치, 빌더 작성·실행 (env `SAU-Net`).
-- [x] **검증:** case 433, 슬라이스 합 20,790 (F0 4105/F1 4580/F2 4098/F3 3947/F4 4060), HU stats `15.0/1577.0/773.55/399.24` (§1.5). fold 별 vessel 분포 (fold 간 ±1 case):
-
-  | Category | F0 | F1 | F2 | F3 | F4 | Total |
-  |---|---|---|---|---|---|---|
-  | LCA | 30 | 30 | 29 | 30 | 30 | 149 |
-  | LAD | 77 | 76 | 76 | 77 | 76 | 382 |
-  | LCX | 49 | 49 | 49 | 49 | 50 | 246 |
-  | RCA | 51 | 51 | 51 | 51 | 52 | 256 |
-  | Cases | 85 | 93 | 85 | 85 | 85 | 433 |
+- [x] **검증:** case 433, 슬라이스 합 20,790 (F0 4105/F1 4580/F2 4098/F3 3947/F4 4060), HU stats `15.0/1577.0/773.55/399.24` (§1.5), fold 별 vessel 분포 ±1 case 균형. 분포 표 상세는 `docs/DATA.md §9.2`.
 
 ### Phase 3 — 코드 수정 (저장소 내부) ✅ 완료
 
@@ -94,61 +86,17 @@
 - [x] `datasets/__init__.py` 신규 — 빈 파일로 로컬 패키지가 HF `datasets`(4.5.0) shadowing 을 이김 (`import datasets.dataset` 복구, 단일 hold-out 경로도 함께 수리).
 - [x] `datasets/dataset.py` — `load_hu_stats` + `COCAVolumeDataset`(per-case `.npy` memmap, `vol[n:n+3]`/`vol[n+1]`, `ct_normalization(**hu)`) 추가. `ct_normalization` 기본값·`COCA_dataset` 불변.
 - [x] `train.py` — 5-fold argparse(`--use_5fold_cv/--fold_idx/--root_path_5fold/--list_dir_5fold/--hu_stats_path/--early_stopping_patience(=50)/--early_stopping_min_delta`) + fold 명명 경고.
-- [x] `trainer.py` — fold 분기(train=fold_idx 제외 4개, val=fold_idx) + early stopping(patience). `DataLoader shuffle=False + collate_fn=shuffle_within_batch` 유지 (§6).
+- [x] `trainer.py` — fold 분기(train=fold_idx 제외 4개, val=fold_idx) + early stopping(patience). `DataLoader shuffle=False + collate_fn=shuffle_within_batch` 유지 (`CLAUDE.md §6`).
 - [x] `test.py`/`tester.py` — 동일 5-fold 인자, `inference()` 가 val fold(`fold{idx}.txt`)를 `COCAVolumeDataset` 으로 로딩. 체크포인트·3D 평가 경로 불변.
 - [x] `aggregate_5fold_results.py` 신규 — 5 fold `results.txt` 의 `[3D]` 라인 + best ckpt/log 를 파싱해 Run Summary + Dice/mIoU/HD (mean±std) Markdown 출력. CLI 는 `--exp_template ...{fold}...`.
 
 ### Phase 4 — 파이프라인 검증 (Smoke ✅ / 본 실험 ⏳)
 
-- [x] **Smoke test (단일 fold) — 종단간 정상**
-  - 경로 검증이 목적이라 30 epoch 까지 갈 필요 없이 `--fold_idx 0` 에서 **2 epoch** 만 실행.
-  ```bash
-  python train.py --use_5fold_cv --fold_idx 0 \
-                  --encoder resnet50_sa --decoder unet \
-                  --max_epochs 2 --exp_setting smoke_5fold_fold0_seed42
-  python test.py  --use_5fold_cv --fold_idx 0 \
-                  --encoder resnet50_sa --decoder unet \
-                  --exp_setting smoke_5fold_fold0_seed42
-  ```
-  - 확인된 것: train 16,685 / val 4,105 fold 분할, best_model 저장·교체, test 4,105 iter → `results.txt` 의 3D 메트릭 생성(2 epoch 라 Dice≈0 정상), `aggregate_5fold_results.py` 가 결과를 Markdown 으로 파싱 (exit 0).
-  - smoke 산출물(`smoke_5fold_*` 의 model/test_log·aggregate md)은 점검 후 정리, 학습이 덮어쓰는 `*_model_summary.txt` 는 원복.
+> 실행 명령은 `docs/EXPERIMENTS.md §8`(5-fold 워크플로) 가 권위본. 여기엔 상태와 확인된 사실만 남긴다.
 
-- [x] **Early stopping 코드 경로 — smoke 에서 무에러 실행 확인**
-  - 매 epoch best 비교 + 카운터 분기(`patience>0 && counter>=patience` → epoch 루프 break) 가 정상 실행됨 (2 epoch 라 실제 break 까지는 미발생). 본 실험은 `patience=50` 으로 운용.
-  - 필요 시 `--early_stopping_patience 5` 로 강제 break 를 별도 확인 가능 (미수행).
-
-- [ ] **5 fold 전부 실행** (실제 본 실험, ⏳ 미실행)
-  ```bash
-  for k in 0 1 2 3 4; do
-    python train.py --use_5fold_cv --fold_idx $k \
-                    --encoder resnet50_sa --decoder unet \
-                    --max_epochs 300 --early_stopping_patience 50 \
-                    --exp_setting review_5fold_msffm_resnet50_unet_fold${k}_seed42
-  done
-  for k in 0 1 2 3 4; do
-    python test.py  --use_5fold_cv --fold_idx $k \
-                    --encoder resnet50_sa --decoder unet \
-                    --exp_setting review_5fold_msffm_resnet50_unet_fold${k}_seed42
-  done
-  python aggregate_5fold_results.py \
-         --exp_template review_5fold_msffm_resnet50_unet_fold{fold}_seed42 \
-         --encoder resnet50_sa --decoder unet
-  ```
-
-- [ ] **Ablation 실험들도 동일 패턴으로 5-fold 반복** (사용자 확정: **All-in**, 단 **main run 우선**)
-  - **실행 순서 정책:** 위의 main run 5-fold (5 trainings) 가 모두 끝나고 결과 집계가 안정적으로 나온 뒤, ablation 9종을 순차 진행 (9 × 5 = 45 trainings). 총 50 trainings.
-  - **A. MSFFM 삽입 위치 ablation:**
-    - `review_5fold_ablation_msffm_stage3_fold{k}_seed42`
-    - `review_5fold_ablation_msffm_stage4_fold{k}_seed42`
-    - `review_5fold_ablation_msffm_default_stage3_4_self_cross_fold{k}_seed42` (= full 앵커)
-  - **B. Attention 종류 ablation:**
-    - `review_5fold_ablation_msffm_self_only_fold{k}_seed42`
-    - `review_5fold_ablation_msffm_cross_only_fold{k}_seed42`
-    - `review_5fold_ablation_msffm_concat_1x1_only_fold{k}_seed42`
-  - **C. 구조 / 하이퍼파라미터 ablation:**
-    - `review_5fold_ablation_msffm_no_residual_fold{k}_seed42`
-    - `review_5fold_ablation_msffm_heads4_fold{k}_seed42`
-    - `review_5fold_ablation_msffm_inter_ratio_025_fold{k}_seed42`
+- [x] **Smoke test (단일 fold) — 종단간 정상.** `--fold_idx 0 --max_epochs 2` 로 경로만 검증. 확인된 것: train 16,685 / val 4,105 fold 분할, best_model 저장·교체, test 4,105 iter → `results.txt` 의 3D 메트릭 생성(2 epoch 라 Dice≈0 정상), `aggregate_5fold_results.py` 가 결과를 Markdown 으로 파싱 (exit 0). smoke 산출물은 점검 후 정리, 덮어쓰인 `*_model_summary.txt` 는 원복.
+- [x] **Early stopping 코드 경로 — smoke 에서 무에러 실행 확인.** 매 epoch best 비교 + 카운터 분기(`patience>0 && counter>=patience` → epoch 루프 break) 정상 실행 (2 epoch 라 실제 break 미발생). 본 실험은 `patience=50` 운용. 필요 시 `--early_stopping_patience 5` 로 강제 break 별도 확인 가능 (미수행).
+- [ ] **본 실험 — main 5-fold 그리드** (⏳ 미실행). 이 브랜치 실행 가능 = **4 encoder(`resnet50_sa/densenet201_sa/efficientnet-b4_sa/mit_b2_sa`) × 2 decoder(`unet/segformer`) = 8 config**, 각 fold0~4 → **40 trainings**. 이어서 평가 8 config × 5 + config별 `aggregate_5fold_results.py`. 명명·병렬 배치는 `docs/EXPERIMENTS.md §3·§8.2`. baseline(비-MSFFM)·PVTv2-b2·ablation 은 본 브랜치 범위 제외 (다른 브랜치/추후 추가).
 
 ---
 
@@ -171,14 +119,11 @@
 
 ## 4. 함정 / 주의 사항
 
+5-fold 전환 고유의 주의점만 남긴다. 일반 repo 함정(augmentation 분기, DataLoader `shuffle=False`+`collate_fn`, DataParallel, AMP/GradScaler, debug print 잔재)은 `CLAUDE.md §6`·`docs/DATA.md §5~§6`·`docs/EXPERIMENTS.md §5·§7` 가 권위본.
+
 - **case_id 단위 분할 강제:** 슬라이스 단위 stratify 는 인접 슬라이스 누수로 2.5D 가정이 깨진다. fold 리스트 생성기는 반드시 case → fold → slice 순서로 동작해야 함.
-- **augmentation 분기:** train 측 dataloader 에는 `RandomAugmentation` 을 켜고 val 측에는 끈다. 현재 코드 패턴 그대로.
-- **DataLoader shuffle:** `shuffle=False + collate_fn=shuffle_within_batch` 유지 (foot-guns §6).
-- **DataParallel:** 다중 GPU 환경에서 자동 활성화. 5-fold 전환과 무관.
-- **AMP / GradScaler:** fold 별 reproducibility 미세 차이 발생 가능. 완전 결정성이 필요한 실험이면 AMP off 옵션을 별도로 둘 것 (지금은 그대로 유지).
 - **모델 선택 optimism 명시:** val 셋이 best epoch 선택과 최종 보고를 동시에 수행함을 Methods 에 한 줄로 적기.
 - **HU 정규화 누수 명시:** 정규화 상수가 전체 433 case 분포에서 산출됨을 솔직히 기술.
-- **debug print:** `resnet_sa.py` / `multi_slice_feature_fusion.py` 의 "Residual branch ..." print 는 의도된 잔재 (foot-guns §6). 함부로 제거하지 말 것.
 
 ---
 
@@ -203,6 +148,6 @@ Phase 3  코드 수정  ✅
    ▼
 Phase 4.1  Smoke test (fold0, 2 epoch)  ✅ 종단간 검증 완료 (산출물 정리됨)
    │
-   └──► Phase 4.3  본 실험 5 fold (main 우선) → ablation 45  →  aggregate_5fold_results.py
+   └──► Phase 4.3  본 실험 main 8-config × 5 (40 trainings)  →  aggregate_5fold_results.py
         ⏳ 아직 미실행 (model/·test_log/ 에 review_5fold_* 산출물 없음)
 ```

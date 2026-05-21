@@ -117,17 +117,36 @@ DataLoader(db_train, batch_size=16, shuffle=False, num_workers=8,
 ### 9.2 `lists_COCA_5fold/` — Fold 분할 리스트
 - `fold0.txt ~ fold4.txt`, 한 줄당 `case{gidx}_slice{n}` (n = triplet 시작 인덱스 0..D-3, case 당 D-2 개). 합 20,790 슬라이스 (fold별 F0 4105/F1 4580/F2 4098/F3 3947/F4 4060).
 - **분할 단위는 case 단위** (1 파일 = 1 case 라 구조적으로 보장). 슬라이스 단위 분할은 prev/ref/next 픽셀 누수를 일으키므로 금지.
-- **층화 키:** case 별 `[LCA, LAD, LCX, RCA]` 4비트 multi-hot. **API:** `MultilabelStratifiedKFold(n_splits=5, shuffle=True, random_state=42)` (`iterative-stratification`). fold 별 vessel 분포는 ±1 case 로 균형 (`TODO.md` §2).
+- **층화 키:** case 별 `[LCA, LAD, LCX, RCA]` 4비트 multi-hot. **API:** `MultilabelStratifiedKFold(n_splits=5, shuffle=True, random_state=42)` (`iterative-stratification`). 아래 표처럼 fold 별 vessel 분포가 ±1 case 로 균형 잡힌다 (원고 Table 1 의 LCA 149/LAD 382/LCX 246/RCA 256/Total 433 과 일치).
+
+  | Category | F0 | F1 | F2 | F3 | F4 | Total |
+  |---|---|---|---|---|---|---|
+  | LCA | 30 | 30 | 29 | 30 | 30 | 149 |
+  | LAD | 77 | 76 | 76 | 77 | 76 | 382 |
+  | LCX | 49 | 49 | 49 | 49 | 50 | 246 |
+  | RCA | 51 | 51 | 51 | 51 | 52 | 256 |
+  | Cases | 85 | 93 | 85 | 85 | 85 | 433 |
+
+- **slice 단위 병변 분포** — 위 표가 case(환자) 단위 vessel 유무라면, 아래는 **해당 혈관 병변이 존재하는 center 슬라이스 수** (center = triplet 의 기준 슬라이스, 학습 타깃). 층화는 case 단위 vessel 유무로만 했으므로 slice 단위 병변량은 fold 간 균형이 보장되지 않는다 (예: RCA 317~434, F1 은 단일 혈관 case 가 많아 슬라이스가 많아도 병변 밀도는 최저).
+
+  | Category | F0 | F1 | F2 | F3 | F4 | Total |
+  |---|---|---|---|---|---|---|
+  | LCA | 45 | 39 | 52 | 43 | 47 | 226 |
+  | LAD | 299 | 280 | 275 | 284 | 276 | 1414 |
+  | LCX | 195 | 188 | 209 | 194 | 238 | 1024 |
+  | RCA | 434 | 317 | 320 | 351 | 363 | 1785 |
+  | center 총합 | 4105 | 4580 | 4098 | 3947 | 4060 | 20790 |
+
 - `fold_assignment.csv` 컬럼: `case_id, fold, label_LCA, label_LAD, label_LCX, label_RCA, slice_count`.
 
 ### 9.3 `hu_stats_433.json` — 정규화 상수
 - 433 case 전체 voxel 분포에서 히스토그램 1-pass 로 산출. 키: `lower`(0.5%), `upper`(99.5%), `mean`, `std`(clip 후) + 분위수/메타. 실제값 `15.0 / 1577.0 / 773.55 / 399.24`.
-- `ct_normalization` 의 **기본 인자를 바꾸지 않고**, `load_hu_stats(path)` 로 읽어 `COCAVolumeDataset` 이 명시 인자로 전달 (단일 hold-out 경로와 분리). 모든 fold 공유.
+- 적용 방식(기본 인자 불변 + `load_hu_stats` 로 읽어 명시 전달 + 모든 fold 공유)은 §4 참고.
 
 ### 9.4 `case_index.csv` — 추적 매핑
 - 컬럼: `case_id, origin(train/test), src_basename(원본 nnUNet), depth, n_samples`. 디버깅/추적용.
 
 ### 9.5 학습 시 dataset 인스턴스화 (`COCAVolumeDataset`)
-- `db_train` = `fold_idx` 제외 4개 fold sample 합집합 (≈346 case, ~16,685 슬라이스), `db_val` = `fold{fold_idx}.txt` (≈87 case, ~4,105 슬라이스). train:val ≈ 4:1.
+- `db_train` = `fold_idx` 제외 4개 fold sample 합집합 (≈346 case, ~16,600 슬라이스), `db_val` = `fold{fold_idx}.txt` (≈87 case, ~4,150 슬라이스). train:val ≈ 4:1. (fold 별 실제 case/슬라이스 수는 §9.2 표 참고.)
 - `COCAVolumeDataset` 가 case 볼륨을 memmap 으로 lazy 로드(case 별 캐시)해 `vol[n:n+3]`→`(H,W,3)`
   + `vol[n+1]` center label 조립, `ct_normalization(**hu)` 적용. `db_val` 은 augmentation 비활성. DataLoader 의 `shuffle=False + collate_fn=shuffle_within_batch` 패턴 유지 (CLAUDE.md §6).

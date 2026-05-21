@@ -34,30 +34,9 @@ SAU-Net/
 
 - Conda env: `SAU-Net` (`/home/psw/anaconda3/envs/SAU-Net/bin/python3`)
 - 주요 의존성: PyTorch + `segmentation_models_pytorch`(in-tree fork) + `monai` + `SimpleITK`
-- 학습 (single hold-out, 기존 기본 경로):
-  ```bash
-  python train.py --encoder resnet50_sa --decoder unet \
-                  --exp_setting <experiment-name>
-  ```
-- 학습 (5-fold CV 모드 — `TODO.md` §1 의 권장 워크플로):
-  ```bash
-  python train.py --encoder resnet50_sa --decoder unet \
-                  --use_5fold_cv --fold_idx 0 \
-                  --early_stopping_patience 50 \
-                  --exp_setting review_5fold_<name>_fold0_seed42
-  ```
-- 평가:
-  ```bash
-  python test.py --encoder resnet50_sa --decoder unet \
-                 --exp_setting <same-as-train>  [--is_savenii]
-  # 5-fold 모드는 train.py 와 동일하게 --use_5fold_cv --fold_idx K 를 함께 지정
-  ```
-- 두 스크립트의 `--exp_setting` 이 동일해야 체크포인트 경로가 매칭된다 (§5 참고).
-- **데이터셋 루트:** `/home/psw/AVS-Diagnosis/COCA/` (본 저장소 외부). 본 코드의 학습/평가는 그 하위 `COCA_3frames/{train_npz, test_npz, lists_COCA}` 만 사용한다. 같은 부모 디렉터리에 `COCA_1frame/` (단일 슬라이스 변형), `Dataset001_COCA/` (nnUNet 포맷), 그리고 `preprocess_train_test_data_3frames.py` 등 전처리 스크립트가 함께 있다 — DICOM/XML 에서 본 코드가 기대하는 NPZ 를 만드는 출처이므로 데이터 재생성이 필요하면 그곳을 참고. 자세한 경로 구조는 `docs/DATA.md` §2.
-- **5-fold CV 모드 추가 자산:** `--use_5fold_cv` 사용 시 별도 디렉터리 `/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/` 를 쓴다 (기존 `COCA_3frames/` 와 분리, 원본 보존). 구성: `images/case{gidx}.npy` + `labels/case{gidx}.npy` (per-case `(D,H,W)` 볼륨, memmap), `lists_COCA_5fold/fold{0..4}.txt` (case-level stratified, sample 이름 `case{gidx}_slice{n}`), `hu_stats_433.json` (433-case 정규화 상수), `case_index.csv` (case_id↔원본 nnUNet 파일명). 모두 데이터 루트의 `build_5fold_dataset.py` 가 `Dataset001_COCA` 원본에서 1회 생성. 절차·배경은 `TODO.md` §1~§2.
-  - case_id = 원본 nnUNet 전역 인덱스 (train 0~313, test 314~450). train_npz/test_npz 가 각각 case0001 부터 독립 번호라 단순 통합이 불가능했던 점이 rebuild 의 이유 (TODO.md §1.1).
-  - 데이터로더는 `--use_5fold_cv` 일 때 `--root_path_5fold` / `--list_dir_5fold` / `--hu_stats_path` (모두 위 경로가 기본값) 를 쓰며 `--root_path` / `--list_dir` 는 무시.
-- 데이터 루트의 기본 절대경로는 위 사용자 로컬 경로다. 다른 PC 로 옮기면 깨지므로 `--root_path` / `--list_dir` 로 덮어쓸 것.
+- 학습/평가 명령 예시(single hold-out + 5-fold)는 `docs/EXPERIMENTS.md §1~§2`. train/test 의 `--exp_setting` 이 동일해야 체크포인트 경로가 매칭된다 (§5). GPU 는 실행마다 `CUDA_VISIBLE_DEVICES` 로 1개 핀 (§6).
+- **데이터셋 루트:** `/home/psw/AVS-Diagnosis/COCA/` (본 저장소 외부, 사용자 로컬 절대경로 → 다른 PC 로 옮기면 깨지므로 `--root_path`/`--list_dir` 로 덮어쓸 것). single hold-out 은 `COCA_3frames/{train_npz,test_npz,lists_COCA}` 사용. 경로 구조 상세는 `docs/DATA.md §2`.
+- **5-fold CV 자산:** `--use_5fold_cv` 사용 시 별도 디렉터리 `COCA_3frames_5fold/` 를 쓴다 (`--root_path`/`--list_dir` 무시, 대신 `--root_path_5fold`/`--list_dir_5fold`/`--hu_stats_path` — 모두 기본값 박힘). `build_5fold_dataset.py` 가 `Dataset001_COCA` 원본에서 1회 생성 (rebuild 이유·포맷·배경은 `docs/DATA.md §9`, `TODO.md §1~§2`).
 
 ## 4. 핵심 컨벤션
 
@@ -92,6 +71,7 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 | `num_heads` 두 파일에서 다른 값 | `resnet_sa.py` 의 `ResNetSAEncoder` 는 `num_heads=8`, `multi_slice_feature_fusion.py` 의 또 다른 `ResNetSAEncoder` 는 `num_heads=1`. `resnet50_sa` 등록 키는 `resnet.py` 가 `from .resnet_sa import ResNetSAEncoder` 로 가져온다(=heads=8). `multi_slice_feature_fusion.py` 의 클래스는 현재 어디서도 직접 import 되지 않는다 — 참고 구현. |
 | `networks/{emcad,fcbformer}` 의 소스 부재 | `__pycache__` 만 남아 있다. EMCAD / FCBFormer 경로는 현재 활성 코드 경로에 없다. branch `EMCAD`, `FCBFormer` 에서 부활할 수 있으나 main 브랜치 작업 시는 dead code 로 간주. |
 | 학습 시 `DataLoader(shuffle=False, collate_fn=shuffle_within_batch)` | shuffle 을 batch 내부에서 수행. 외부 shuffle 을 켜지 말 것 — 인접 슬라이스 정렬이 깨지면 MSFFM 가정이 무의미해진다. |
+| **학습 1개 = GPU 1개 (DataParallel 자동 함정)** | `trainer.py:77-78` 이 `torch.cuda.device_count()>1` 이면 **보이는 GPU 를 전부 `nn.DataParallel` 로 잡는다**. 한 학습(run)은 반드시 단일 GPU 로 돌려야 하므로 **매 실행에 `CUDA_VISIBLE_DEVICES=0` 또는 `=1` 을 명시**할 것 (그러면 `device_count()==1` → DataParallel 미적용). 두 GPU 가 모두 비면 `=0`/`=1` 로 서로 다른 실험을 동시에 돌려도 된다. 명령·병렬 워크플로 상세는 `docs/EXPERIMENTS.md §5·§8`. |
 | `ct_normalization` 의 상수 | 단일 hold-out 기본값 `lower=-2.0, upper=1521.0, mean=355.38, std=282.92` (train 300-case). **5-fold 경로는 이 기본값을 쓰지 않는다** — `hu_stats_433.json` (`15.0/1577.0/773.55/399.24`, 433-case 0.5/99.5 분위수) 을 `load_hu_stats` 로 읽어 `COCAVolumeDataset` 이 명시 인자로 전달한다. 두 경로의 정규화가 다르므로 절대 수치 직접 비교 금지. 다른 코호트(KMU 등) 적용 시 재산정. |
 | 로컬 `datasets` vs HuggingFace `datasets` | env 에 HF `datasets`(4.5.0)가 설치돼 있어, 로컬 `datasets/` 에 `__init__.py` 가 없으면 `import datasets.dataset` 이 HF 패키지에 가로채여 실패한다. **`datasets/__init__.py`(빈 파일) 를 지우지 말 것** — 로컬 패키지 우선권을 보장하는 마커다. |
 | 평가는 3D | `tester.py` 는 슬라이스 예측을 케이스별로 모아 3D 볼륨으로 합성한 뒤 MONAI 메트릭 (Dice/MeanIoU/SurfaceDistance) 을 적용한다. 2D 슬라이스 단위 메트릭이 필요하면 `compute_metrics_3d` 를 우회해야 한다. |
