@@ -101,12 +101,14 @@ if __name__ == "__main__":
     else:
         test_save_path = None
 
-    # encoder가 존재한다면, NonLocalBlock들에 대해 forward hook을 등록합니다.
-    net.backbone.cross_attention_prev_3.register_forward_hook(get_attn_hook("stage3_prev"))
-    net.backbone.cross_attention_self_3.register_forward_hook(get_attn_hook("stage3_self"))
-    net.backbone.cross_attention_next_3.register_forward_hook(get_attn_hook("stage3_next"))
-    net.backbone.cross_attention_prev_4.register_forward_hook(get_attn_hook("stage4_prev"))
-    net.backbone.cross_attention_self_4.register_forward_hook(get_attn_hook("stage4_self"))
-    net.backbone.cross_attention_next_4.register_forward_hook(get_attn_hook("stage4_next"))
+    # Attention 시각화 hook (기본 비활성). fused SDPA 경로는 attention_weights=None 을 반환하므로
+    # 시각화하려면 대상 NonLocalBlock 의 return_attention=True 로 켠 뒤 아래 등록과
+    # tester.py 의 visualize_attention 호출을 함께 활성화할 것.
+    # net.backbone.cross_attention_prev_3.register_forward_hook(get_attn_hook("stage3_prev"))
+    # net.backbone.cross_attention_self_3.register_forward_hook(get_attn_hook("stage3_self"))
+    # net.backbone.cross_attention_next_3.register_forward_hook(get_attn_hook("stage3_next"))
+    # net.backbone.cross_attention_prev_4.register_forward_hook(get_attn_hook("stage4_prev"))
+    # net.backbone.cross_attention_self_4.register_forward_hook(get_attn_hook("stage4_self"))
+    # net.backbone.cross_attention_next_4.register_forward_hook(get_attn_hook("stage4_next"))
         
     inference(args, net, test_save_path)

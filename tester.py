@@ -282,11 +282,11 @@ def inference(args, model, test_save_path: str = None):
         img_2d = image.squeeze(0).cpu().numpy()
         pred_2d, label_2d = run_inference_on_slice(image, label, model)
         
-        if full_case_name in ['case0008_slice013', 'case0008_slice014', 'case0008_slice015', 'case0008_slice016']:
-            # attention hook을 통해 저장된 정보를 이용해 "특정 query 픽셀" 기반의 attention 시각화 (center slice의 레이블 전달)
-            visualize_attention(attn_dict, img_2d, label_2d, full_case_name, attn_vis_dir)
-            # 다음 샘플을 위해 attn_dict 초기화
-            attn_dict.clear()
+        # Attention 시각화 (기본 비활성). test.py 의 hook 등록과 NonLocalBlock.return_attention=True 를
+        # 함께 켤 때만 사용. 평상시 fused SDPA 는 attention_weights=None 이라 attn_dict 가 비어 있다.
+        # if full_case_name in ['case0008_slice013', 'case0008_slice014', 'case0008_slice015', 'case0008_slice016']:
+        #     visualize_attention(attn_dict, img_2d, label_2d, full_case_name, attn_vis_dir)
+        #     attn_dict.clear()
         
         accumulate_slice_prediction(image_slices_dict, pred_slices_dict, label_slices_dict, case_id, slice_id, pred_2d, label_2d, img_2d)
 
