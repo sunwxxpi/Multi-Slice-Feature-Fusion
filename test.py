@@ -26,6 +26,13 @@ parser.add_argument('--deterministic', type=int, default=1, help='whether use de
 parser.add_argument('--seed', type=int, default=42, help='random seed')
 parser.add_argument('--is_savenii', action="store_true", help='whether to save results during inference')
 parser.add_argument('--z_spacing', type=int, default=3, help='z spacing of the volume')
+
+# 5-fold cross-validation. 미지정 시 기존 단일 hold-out(.npy.h5 볼륨) 평가 경로 유지.
+parser.add_argument('--use_5fold_cv', action='store_true', help='5-fold CV 모드: validation fold 를 per-slice 로 평가')
+parser.add_argument('--fold_idx', type=int, default=0, help='평가할 validation fold 인덱스 (학습 때와 동일)')
+parser.add_argument('--root_path_5fold', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold', help='5-fold per-case 볼륨 루트 (images/, labels/)')
+parser.add_argument('--list_dir_5fold', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold fold 리스트 디렉터리')
+parser.add_argument('--hu_stats_path', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU 정규화 상수 JSON')
 args = parser.parse_args()
 
 if __name__ == "__main__":

@@ -23,6 +23,15 @@ parser.add_argument('--finetune_exp_setting', type=str, default='', help='descri
 parser.add_argument('--enable_finetuning', action="store_true", help='Path to model checkpoint for finetuning')
 parser.add_argument('--deterministic', type=int, default=1, help='whether use deterministic training')
 parser.add_argument('--seed', type=int, default=42, help='random seed')
+
+# 5-fold cross-validation (case 단위 stratified). 미지정 시 기존 단일 hold-out 경로 유지.
+parser.add_argument('--use_5fold_cv', action='store_true', help='5-fold CV 모드 활성화 (COCAVolumeDataset 사용)')
+parser.add_argument('--fold_idx', type=int, default=0, help='validation fold 인덱스 (0~4), 나머지 4개 fold 가 train')
+parser.add_argument('--root_path_5fold', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold', help='5-fold per-case 볼륨 루트 (images/, labels/)')
+parser.add_argument('--list_dir_5fold', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold fold 리스트 디렉터리')
+parser.add_argument('--hu_stats_path', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU 정규화 상수 JSON')
+parser.add_argument('--early_stopping_patience', type=int, default=50, help='val_loss 미갱신 epoch 수 임계 (0=비활성)')
+parser.add_argument('--early_stopping_min_delta', type=float, default=0.0, help='val_loss 개선으로 인정할 최소 폭')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -37,6 +46,10 @@ if __name__ == "__main__":
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
+
+    # exp_setting 에 fold 식별자가 없으면 fold 간 체크포인트가 같은 경로로 덮어써질 위험 경고
+    if args.use_5fold_cv and f"fold{args.fold_idx}" not in args.exp_setting:
+        print(f"[warn] use_5fold_cv 인데 exp_setting('{args.exp_setting}') 에 'fold{args.fold_idx}' 가 없음 → fold 간 경로 충돌 위험")
 
     if args.decoder == 'unet':
         net = smp.Unet(encoder_name=args.encoder,
