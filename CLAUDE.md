@@ -44,7 +44,7 @@ SAU-Net/
 - **클래스 수:** 5 (배경 + LCA / LAD / LCX / RCA). `DiceLoss` 는 배경(index 0) 을 제외하고 평균.
 - **손실:** `loss = 0.5 * Dice + 0.5 * CrossEntropy`, AMP(`GradScaler`) 사용.
 - **옵티마이저·스케줄:** AdamW(lr=1e-5, wd=1e-4) + 커스텀 `PolyLRScheduler` (exponent=0.9).
-- **MHA heads:** 논문은 8 로 명시. 다만 `resnet_sa.py` 는 `num_heads=8`, `multi_slice_feature_fusion.py`의 `ResNetSAEncoder` 는 `num_heads=1` 로 설정되어 있다 → 학습/평가에 실제로 어떤 파일이 활성화되는지는 §6 의 등록(registry) 흐름으로 추적할 것.
+- **MHA heads:** 논문 명시값 8. 모든 `_sa` 인코더(`resnet_sa.py` / `densenet_sa.py` / `efficientnet_sa.py` / `mix_transformer_sa.py`)와 참고 구현 `multi_slice_feature_fusion.py` 가 `num_heads=8` 로 통일됨. attention 은 전체 `(H·W)×(H·W)`.
 - **MSFFM 삽입 위치:** encoder 의 stage 3(32×32) 와 stage 4(16×16). 두 곳 동시 적용이 최적 (Ablation, 논문 Table 4).
 - **체크포인트 네이밍:** `epoch_{N}_{val_loss:.4f}_best_model.pth` (val_loss 최저 시 저장) 와 학습 종료 시점의 `epoch_{max}_{val_loss}.pth`.
 
@@ -67,8 +67,8 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 |---|---|
 | `in_channels=1` 인데 실제 입력은 3채널 | `smp.Unet(..., in_channels=1)` 호출이 `set_in_channels(1)` 을 트리거해 첫 conv 를 `Conv2d(1→64)` 로 패치한다. SA 인코더는 `forward(x)` 안에서 3채널을 직접 `[:,0:1]/[:,1:2]/[:,2:3]` 로 잘라 같은 conv1 을 3번 통과시키므로 정상 동작한다. **임의로 `in_channels=3` 으로 바꾸지 말 것** — 가중치 공유와 ImageNet pretrained 로딩이 깨진다. |
 | 학습 시 인코더 prefix 미사용, 테스트 시 prefix 부여 | `test.py:add_encoder_prefix` 가 체크포인트의 키 앞에 `encoder.` 를 붙여 SMP 의 모듈 트리에 매칭시킨다. 학습 코드가 `model.state_dict()` 그대로 저장하므로 키가 평탄(flat)하기 때문. 새 체크포인트 포맷을 만들 때 둘 다 수정해야 한다. |
-| `print("Residual branch mean abs value:", ...)` | `resnet_sa.py` / `multi_slice_feature_fusion.py` 의 forward 안에 디버그 print 가 남아 있다. 학습/추론 로그를 오염시키지만 **의도된 잔재이므로 함부로 지우지 말고** 변경 전 사용자 확인. |
-| `num_heads` 두 파일에서 다른 값 | `resnet_sa.py` 의 `ResNetSAEncoder` 는 `num_heads=8`, `multi_slice_feature_fusion.py` 의 또 다른 `ResNetSAEncoder` 는 `num_heads=1`. `resnet50_sa` 등록 키는 `resnet.py` 가 `from .resnet_sa import ResNetSAEncoder` 로 가져온다(=heads=8). `multi_slice_feature_fusion.py` 의 클래스는 현재 어디서도 직접 import 되지 않는다 — 참고 구현. |
+| `print("Residual branch mean abs value:", ...)` | `resnet_sa.py` / `multi_slice_feature_fusion.py` 의 forward 안 residual 진단 print. 모듈 상수 `DEBUG_RESIDUAL`(기본 `False`) 로 게이팅되어 평상시 실행 안 됨 (`.item()` CUDA 동기화·로그 오염 없음). 진단 필요 시 해당 파일의 `DEBUG_RESIDUAL=True` 로 켤 것. **의도된 instrumentation 이므로 삭제하지 말 것.** |
+| `ResNetSAEncoder` 가 두 파일에 중복 정의 | `resnet_sa.py` 와 `multi_slice_feature_fusion.py` 양쪽에 동명 클래스가 있다. 둘 다 `num_heads=8` / 전체 attention 으로 동일하지만, `resnet50_sa` 등록 키는 `resnet.py` 가 `from .resnet_sa import ResNetSAEncoder` 로 가져오는 쪽만 활성이다. `multi_slice_feature_fusion.py` 의 클래스(및 `CosineDynamicFusion`/`DoubleConv`)는 어디서도 import 되지 않는 참고 구현 — 수정해도 학습/평가에 영향 없음. |
 | `networks/{emcad,fcbformer}` 의 소스 부재 | `__pycache__` 만 남아 있다. EMCAD / FCBFormer 경로는 현재 활성 코드 경로에 없다. branch `EMCAD`, `FCBFormer` 에서 부활할 수 있으나 main 브랜치 작업 시는 dead code 로 간주. |
 | 학습 시 `DataLoader(shuffle=False, collate_fn=shuffle_within_batch)` | shuffle 을 batch 내부에서 수행. 외부 shuffle 을 켜지 말 것 — 인접 슬라이스 정렬이 깨지면 MSFFM 가정이 무의미해진다. |
 | **학습 1개 = GPU 1개 (DataParallel 자동 함정)** | `trainer.py:77-78` 이 `torch.cuda.device_count()>1` 이면 **보이는 GPU 를 전부 `nn.DataParallel` 로 잡는다**. 한 학습(run)은 반드시 단일 GPU 로 돌려야 하므로 **매 실행에 `CUDA_VISIBLE_DEVICES=0` 또는 `=1` 을 명시**할 것 (그러면 `device_count()==1` → DataParallel 미적용). 두 GPU 가 모두 비면 `=0`/`=1` 로 서로 다른 실험을 동시에 돌려도 된다. 명령·병렬 워크플로 상세는 `docs/EXPERIMENTS.md §5·§8`. |

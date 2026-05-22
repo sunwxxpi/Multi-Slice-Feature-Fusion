@@ -7,6 +7,10 @@ from ._base import EncoderMixin
 # 고정된 입력 크기의 경우, cudnn의 벤치마크 기능을 활성화하여 연산 최적화를 도모합니다.
 torch.backends.cudnn.benchmark = True
 
+# True 로 두면 forward 안에서 residual 경로의 절대값/norm 비율을 print (디버그용).
+# 평상시 False — print 와 .item() 동기화로 인한 로그 오염·GPU stall 방지.
+DEBUG_RESIDUAL = False
+
 # =============================================================================
 # MultiSliceFeatureFusion 모듈: Cross-Attention 연산 수행
 # =============================================================================
@@ -40,45 +44,40 @@ class MultiSliceFeatureFusion(nn.Module):
             nn.Conv2d(self.inter_channels, self.in_channels, kernel_size=1, bias=False),
             nn.BatchNorm2d(self.in_channels)
         )
-        # 초기 residual의 영향력을 최소화하기 위해 BatchNorm의 가중치와 bias를 0으로 초기화
-        nn.init.constant_(self.W_z[1].weight, 0)  # 필요 시 1e-3 정도로 조정 가능
+        # zero-init residual: 초기엔 fusion=identity 로 시작해 pretrained feature 보호,
+        # 학습하며 BatchNorm gamma 가 0 에서 자라 fusion 이 점진적으로 engage.
+        nn.init.constant_(self.W_z[1].weight, 0)
         nn.init.constant_(self.W_z[1].bias, 0)
+        # 평상시 fused SDPA 사용. True 면 시각화용으로 attention 가중치를 명시 계산.
+        self.return_attention = False
 
     def forward(self, x_thisBranch, x_otherBranch):
-        """
-        Args:
-            x_thisBranch (torch.Tensor): 기준이 되는 feature map, shape (B, C, H, W)
-            x_otherBranch (torch.Tensor): 정보를 제공할 feature map, shape (B, C, H, W)
-        
-        Returns:
-            z (torch.Tensor): cross-attention을 통해 생성된 feature map, shape (B, C, H, W)
-            attention_weights (torch.Tensor): 계산된 attention 가중치, shape (B, num_heads, N, N)
-        """
+        # 논문 §2.2: Query=reference(x_thisBranch), Key/Value=상대 슬라이스(x_otherBranch).
+        # 동일 입력이면 self-attention 으로 환원. 전체 (H*W)x(H*W) multi-head attention.
         B, C, H, W = x_thisBranch.size()
 
-        # 1x1 Convolution을 사용해 query, key, value 생성
-        query = self.query_conv(x_thisBranch)   # 결과 shape: (B, inter_channels, H, W)
-        key   = self.key_conv(x_otherBranch)      # 결과 shape: (B, inter_channels, H, W)
-        value = self.value_conv(x_otherBranch)    # 결과 shape: (B, inter_channels, H, W)
+        query = self.query_conv(x_thisBranch)
+        key   = self.key_conv(x_otherBranch)
+        value = self.value_conv(x_otherBranch)
 
-        N = H * W  # 공간 상의 총 픽셀 수
-        # 텐서를 (B, num_heads, N, head_dim)로 재구성: 각 헤드가 독립적으로 계산되도록 차원 변경
+        N = H * W
         query = query.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)
         key   = key.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)
         value = value.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)
 
-        # Scaled Dot-Product Attention 계산: query와 key의 내적 후 스케일링 적용
-        attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (self.head_dim ** 0.5)
-        # softmax 함수를 이용해 attention 가중치를 정규화
-        attention_weights = F.softmax(attention_scores, dim=-1)
-        # 가중치와 value를 곱해 attention 결과 계산
-        out = torch.matmul(attention_weights, value)
+        if self.return_attention:
+            # 시각화 경로: fused 커널은 가중치를 반환하지 않으므로 명시적으로 계산.
+            attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (self.head_dim ** 0.5)
+            attention_weights = F.softmax(attention_scores, dim=-1)
+            out = torch.matmul(attention_weights, value)
+        else:
+            # fused scaled dot-product attention: 동일 연산, 메모리/속도 이득 (scale 기본 1/sqrt(head_dim)).
+            out = F.scaled_dot_product_attention(query.contiguous(), key.contiguous(), value.contiguous())
+            attention_weights = None
 
-        # 계산된 결과를 원래의 차원으로 복원: (B, inter_channels, H, W)
         out = out.permute(0, 1, 3, 2).contiguous().view(B, self.inter_channels, H, W)
-        # projection 레이어를 통해 최종 feature map 생성
         z = self.W_z(out)
-        
+
         return z, attention_weights
     
 # =============================================================================
@@ -198,18 +197,18 @@ class DoubleConv(nn.Module):
         return self.double_conv(x)
 
 # =============================================================================
-# ResNetSAEncoder 모듈: ResNet 기반 3-slice Encoder (동적 Fusion 적용)
+# ResNetSAEncoder 모듈: ResNet 기반 3-slice Encoder
 # =============================================================================
 class ResNetSAEncoder(ResNet, EncoderMixin):
     """
     이 Encoder는 3개의 슬라이스(이전, 중앙, 이후)를 입력으로 받아,
     ResNet의 여러 단계(stage)에서 각 슬라이스별로 개별 연산을 수행한 후,
-    cross-attention과 코사인 유사도 기반 동적 Fusion을 통해 feature들을 융합합니다.
-    
+    cross-attention 결과를 concat 후 1x1 conv 로 융합합니다.
+
     주요 처리 단계:
       - 입력 슬라이스 분리 및 초기 convolution 처리
       - 각 stage별로 동일한 네트워크 블록을 독립적으로 적용
-      - Stage3와 Stage4에서 cross-attention 후 동적 Fusion 수행
+      - Stage3와 Stage4에서 cross-attention 후 concat + 1x1 conv fusion 수행
       - residual 연결을 통해 원본 정보와 fusion 결과를 결합
       
     입력:
@@ -226,27 +225,21 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         del self.fc
         del self.avgpool
 
-        self.num_heads = 1  # cross-attention 연산에 사용할 헤드 수 (필요 시 조정 가능)
+        self.num_heads = 8  # cross-attention 연산에 사용할 헤드 수 (필요 시 조정 가능)
 
         # ---------------------- Stage3: Layer3 이후 Fusion ----------------------
         # 각 슬라이스별 cross-attention 모듈 구성 (채널: 1024 -> 512)
         self.cross_attention_prev_3 = MultiSliceFeatureFusion(in_channels=1024, inter_channels=512, num_heads=self.num_heads)
         self.cross_attention_self_3 = MultiSliceFeatureFusion(in_channels=1024, inter_channels=512, num_heads=self.num_heads)
         self.cross_attention_next_3 = MultiSliceFeatureFusion(in_channels=1024, inter_channels=512, num_heads=self.num_heads)
-        # 세 슬라이스의 feature를 코사인 유사도 기반으로 융합 (출력 채널: 3072)
-        self.dynamic_fusion_3 = CosineDynamicFusion(pooling_type='avgmax')
-        # 1x1 Convolution으로 채널 수 축소 (3072 -> 1024)
+        # 세 슬라이스 attention 출력을 채널 방향으로 concat 후 1x1 conv 로 채널 복원 (3072 -> 1024)
         self.compress_3 = nn.Conv2d(3072, 1024, kernel_size=1, bias=False)
-        # 추가 정제를 위한 DoubleConv 모듈 (채널 유지: 1024)
-        self.double_conv_3 = DoubleConv(1024, 1024, 1024)
 
         # ---------------------- Stage4: Layer4 이후 Fusion ----------------------
         self.cross_attention_prev_4 = MultiSliceFeatureFusion(in_channels=2048, inter_channels=1024, num_heads=self.num_heads)
         self.cross_attention_self_4 = MultiSliceFeatureFusion(in_channels=2048, inter_channels=1024, num_heads=self.num_heads)
         self.cross_attention_next_4 = MultiSliceFeatureFusion(in_channels=2048, inter_channels=1024, num_heads=self.num_heads)
-        self.dynamic_fusion_4 = CosineDynamicFusion(pooling_type='avgmax')
         self.compress_4 = nn.Conv2d(6144, 2048, kernel_size=1, bias=False)
-        self.double_conv_4 = DoubleConv(2048, 2048, 2048)
 
     def forward(self, x):
         """
@@ -301,7 +294,7 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         # Stage2의 중앙 feature 저장
         features.append(x_main)
 
-        # ---------- Stage3: Layer3 및 동적 Fusion ----------
+        # ---------- Stage3: Layer3 및 Fusion ----------
         # 각 슬라이스에 대해 Layer3의 블록들을 순차적으로 적용
         for block in self.layer3:
             x_prev = block(x_prev)
@@ -312,18 +305,18 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         xt1, _ = self.cross_attention_prev_3(x_main, x_prev)
         xt2, _ = self.cross_attention_self_3(x_main, x_main)
         xt3, _ = self.cross_attention_next_3(x_main, x_next)
-        # cross-attention 결과들을 코사인 유사도 기반으로 fusion 수행 (출력 shape: (B, 3072, H, W))
-        fused_xt = self.dynamic_fusion_3(xt1, xt2, xt3)
+        # cross-attention 결과들을 채널 방향으로 concat (출력 shape: (B, 3072, H, W))
+        fused_xt = torch.cat([xt1, xt2, xt3], dim=1)
         # 1x1 Convolution을 통해 채널 수를 축소 (3072 -> 1024)
         fused_xt = self.compress_3(fused_xt)
-        # DoubleConv를 적용하여 추가 정제 수행
-        xt_downcross = self.double_conv_3(fused_xt)
+        xt_downcross = fused_xt
         
-        # fusion 결과의 절대값 평균과 norm 비율을 출력하여 residual 경로의 효과 확인
-        residual_mean = xt_downcross.abs().mean().item()
-        print("Residual branch mean abs value:", residual_mean)
-        residual_ratio = (torch.norm(xt_downcross) / torch.norm(x_main)).item()
-        print("Residual branch norm ratio:", residual_ratio)
+        # fusion 결과의 절대값 평균과 norm 비율로 residual 경로 효과 확인 (디버그 시에만)
+        if DEBUG_RESIDUAL:
+            residual_mean = xt_downcross.abs().mean().item()
+            print("Residual branch mean abs value:", residual_mean)
+            residual_ratio = (torch.norm(xt_downcross) / torch.norm(x_main)).item()
+            print("Residual branch norm ratio:", residual_ratio)
         
         # residual 연결을 통해 중앙 feature에 fusion 결과를 더함
         x_main = xt_downcross + x_main
@@ -331,7 +324,7 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         # Stage3의 최종 중앙 feature를 저장
         features.append(x_main)
 
-        # ---------- Stage4: Layer4 및 동적 Fusion ----------
+        # ---------- Stage4: Layer4 및 Fusion ----------
         # 각 슬라이스별로 Layer4의 블록들을 적용
         for block in self.layer4:
             x_prev = block(x_prev)
@@ -342,12 +335,11 @@ class ResNetSAEncoder(ResNet, EncoderMixin):
         xt1, _ = self.cross_attention_prev_4(x_main, x_prev)
         xt2, _ = self.cross_attention_self_4(x_main, x_main)
         xt3, _ = self.cross_attention_next_4(x_main, x_next)
-        # 코사인 유사도 기반 fusion으로 세 슬라이스의 정보를 융합
-        fused_xt = self.dynamic_fusion_4(xt1, xt2, xt3)
+        # 세 슬라이스 결과를 채널 방향으로 concat
+        fused_xt = torch.cat([xt1, xt2, xt3], dim=1)
         # 1x1 Convolution으로 채널 수 축소 (6144 -> 2048)
         fused_xt = self.compress_4(fused_xt)
-        # DoubleConv를 적용하여 최종 정제 수행
-        xt_downcross = self.double_conv_4(fused_xt)
+        xt_downcross = fused_xt
         
         # residual 연결을 통해 중앙 feature에 fusion 결과를 결합
         x_main = xt_downcross + x_main
