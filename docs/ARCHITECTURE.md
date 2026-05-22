@@ -43,10 +43,11 @@ Z_final = Z_fused ⊕ X_ref                            # residual
 
 ### 3.1 활성 구현 (`segmentation_models_pytorch/encoders/resnet_sa.py`)
 
-- `NonLocalBlock` 클래스가 attention 한 쌍을 담당한다. 인자 이름은 `x_thisBranch`, `x_otherBranch` 이지만 실제 매핑은
-  - `query := W_q · x_otherBranch`
-  - `key   := W_k · x_thisBranch`
-  - `value := W_v · x_thisBranch` 로, `cross_attention_self_3(x_main, x_main)` 호출 시 self-attention 으로 환원된다.
+- `NonLocalBlock` 클래스가 attention 한 쌍을 담당한다. 호출은 `cross_attention_*(x_thisBranch, x_otherBranch)` 이고 매핑은 (원고 §2.2)
+  - `query := W_q · x_thisBranch`  (reference 슬라이스)
+  - `key   := W_k · x_otherBranch` (이웃 슬라이스 prev/next)
+  - `value := W_v · x_otherBranch` 로, `cross_attention_self_3(x_main, x_main)` 호출 시 self-attention 으로 환원된다.
+- attention 은 전체 `(H·W)×(H·W)` multi-head (num_heads=8) scaled dot-product 다.
 - `ResNetSAEncoder.forward` 는 입력 `(B, 3, H, W)` 를 채널 축으로 `prev/main/next` 로 분리한 뒤 stage0~stage4 를 **가중치 공유로 3번 통과**한다.
 - Stage 3 종료 직후:
   ```python
@@ -54,18 +55,18 @@ Z_final = Z_fused ⊕ X_ref                            # residual
   xt2, _ = cross_attention_self_3(x_main, x_main)
   xt3, _ = cross_attention_next_3(x_main, x_next)
   xt = torch.cat([xt1, xt2, xt3], dim=1)
-  xt = compress_3(xt)            # 3072 → 1024
-  x_main = double_conv_3(xt) + x_main  # residual
+  xt = compress_3(xt)            # 3072 → 1024 (W_c, 1x1 conv)
+  x_main = xt + x_main           # residual (W_z BN zero-init warm-start)
   ```
-  Stage 4 도 동일한 구조 (채널만 2048→1024 inter, 6144→2048 compress).
+  `compress` 출력이 곧바로 residual 로 더해진다. Stage 4 도 동일한 구조 (채널만 2048→1024 inter, 6144→2048 compress).
 - `features` 리스트는 `[input, stage0_main, stage1_main, stage2_main, stage3_fused, stage4_fused]` 순서로 채워져 SMP 디코더가 받는 형식과 호환된다.
 
 ### 3.2 참고 구현 (`multi_slice_feature_fusion.py`)
 
-같은 디렉터리에 또 다른 `ResNetSAEncoder` 가 있다. 이 파일은:
-- `MultiSliceFeatureFusion` (cross-attn, BN, residual)
-- `CosineDynamicFusion` (글로벌 descriptor 의 cosine similarity 로 동적 가중치 산출)
-- `DoubleConv` (3x3 conv ×2) 을 묶어 두었지만 **현재 어떤 encoder registry 에도 등록되어 있지 않다**. 실험 변형의 보관용 코드로 간주하고, 새로 도입하려면 `resnet.py` 의 `resnet_encoders` 딕셔너리에 명시적으로 키를 추가해야 한다.
+같은 디렉터리에 또 다른 `ResNetSAEncoder` 가 있다. 활성 구현(`resnet_sa.py`)과 동일한 paper-faithful fusion 을 따른다 — `MultiSliceFeatureFusion` 의 Q=ref / K,V=이웃, 전체 attention, num_heads=8, `W_z` BN zero-init residual. forward 는 `concat → compress(1x1) → +x_main` 으로 융합한다.
+
+- `CosineDynamicFusion` (글로벌 descriptor 의 cosine similarity 로 동적 가중치 산출) 과 `DoubleConv` (3x3 conv ×2) 클래스는 파일에 **정의만 남아 있고 현재 forward 경로에서 호출되지 않는다** — 실험 변형 보관용.
+- 이 인코더는 **어떤 encoder registry 에도 등록되어 있지 않다**. 새로 도입하려면 `resnet.py` 의 `resnet_encoders` 딕셔너리에 명시적으로 키를 추가해야 한다.
 
 ### 3.3 그 외 백본
 
@@ -88,11 +89,12 @@ train.py: smp.Unet(encoder_name="resnet50_sa", ...)
 
 ## 5. Attention 시각화 hook
 
-- `tester.py:get_attn_hook` 가 `(z, attention_weights)` 튜플의 두 번째 원소를 `attn_dict` 에 저장한다. NonLocalBlock 의 forward 가 정확히 그 형태로 반환한다.
+- `tester.py:get_attn_hook` 가 `(z, attention_weights)` 튜플의 두 번째 원소를 `attn_dict` 에 저장한다. forward 는 평상시 fused SDPA 경로로 `attention_weights=None` 을 반환하므로, 시각화하려면 대상 `NonLocalBlock` 의 `return_attention=True` 로 명시 계산 경로를 켜야 가중치가 나온다.
 - `test.py` 에 hook 등록 코드가 주석 처리되어 있다 (lines 96–103). 사용 시:
-  1. `test.py` 의 hook 블록 주석 해제
-  2. `tester.py:inference` 의 `visualize_attention(...)` 호출 주석 해제
-  3. NonLocalBlock 의 attention head 가 1 이상이어야 의미 있는 시각화가 나온다.
+  1. 대상 `NonLocalBlock` 들의 `return_attention=True` 설정
+  2. `test.py` 의 hook 블록 주석 해제
+  3. `tester.py:inference` 의 `visualize_attention(...)` 호출 주석 해제
+  4. NonLocalBlock 의 attention head 가 1 이상이어야 의미 있는 시각화가 나온다.
 - 저장 위치는 `test_save_path/attention_vis/` (없으면 `./test_log/attention_vis/`).
 - query 픽셀은 ground-truth lesion 의 평균 좌표로 자동 선정된다. GT 가 없으면 해당 슬라이스는 스킵.
 

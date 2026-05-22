@@ -76,75 +76,45 @@ class NonLocalBlock(nn.Module):
         self.key_conv = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
         self.value_conv = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
 
-        self.global_tokens = nn.Parameter(torch.randn(self.num_global_tokens, self.inter_channels))
         
         self.W_z = nn.Sequential(
             nn.Conv2d(self.inter_channels, self.in_channels, kernel_size=1, bias=False),
             nn.BatchNorm2d(self.in_channels)
         )
+        # zero-init residual: 초기엔 fusion=identity 로 시작해 pretrained feature 보호,
+        # 학습하며 BatchNorm gamma 가 0 에서 자라 fusion 이 점진적으로 engage.
         nn.init.constant_(self.W_z[1].weight, 0)
         nn.init.constant_(self.W_z[1].bias, 0)
+        # 평상시 fused SDPA 사용. True 면 시각화용으로 attention 가중치를 명시 계산.
+        self.return_attention = False
 
     def forward(self, x_thisBranch, x_otherBranch):
+        # 논문 §2.2: Query=reference(x_thisBranch), Key/Value=상대 슬라이스(x_otherBranch).
+        # 동일 입력이면 self-attention 으로 환원. 전체 (H*W)x(H*W) multi-head attention.
         B, C, H, W = x_thisBranch.size()
-        
-        query = self.query_conv(x_otherBranch)   # (B, inter_channels, H, W)
-        key   = self.key_conv(x_thisBranch)      # (B, inter_channels, H, W)
-        value = self.value_conv(x_thisBranch)    # (B, inter_channels, H, W)
 
-        N = H * W  # 전체 픽셀 수
-        query = query.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
-        key   = key.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
-        value = value.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B, num_heads, N, head_dim)
+        query = self.query_conv(x_thisBranch)
+        key   = self.key_conv(x_otherBranch)
+        value = self.value_conv(x_otherBranch)
 
-        attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (self.head_dim ** 0.5)
-        attention_weights = F.softmax(attention_scores, dim=-1)
+        N = H * W
+        query = query.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)
+        key   = key.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)
+        value = value.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)
 
-        out = torch.matmul(attention_weights, value)
+        if self.return_attention:
+            # 시각화 경로: fused 커널은 가중치를 반환하지 않으므로 명시적으로 계산.
+            attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (self.head_dim ** 0.5)
+            attention_weights = F.softmax(attention_scores, dim=-1)
+            out = torch.matmul(attention_weights, value)
+        else:
+            # fused scaled dot-product attention: 동일 연산, 메모리/속도 이득 (scale 기본 1/sqrt(head_dim)).
+            out = F.scaled_dot_product_attention(query.contiguous(), key.contiguous(), value.contiguous())
+            attention_weights = None
 
-        out = out.permute(0, 1, 3, 2).contiguous()  # (B, num_heads, head_dim, N)
-        out = out.view(B, self.inter_channels, H, W)
+        out = out.permute(0, 1, 3, 2).contiguous().view(B, self.inter_channels, H, W)
+        z = self.W_z(out)
 
-        # (6) 최종 projection
-        z = self.W_z(out)  # (B, C, H, W) """
-
-        """ # 윈도우 분할
-        x_this_win = window_partition(x_thisBranch, self.window_size)
-        x_other_win = window_partition(x_otherBranch, self.window_size)
-
-        # 쿼리, 키, 값 생성
-        query = self.query_conv(x_other_win)
-        key = self.key_conv(x_this_win)
-        value = self.value_conv(x_this_win)
-
-        B_win = query.shape[0]
-        N = self.window_size * self.window_size
-
-        # 멀티헤드를 위한 차원 변환
-        query = query.view(B_win, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B_win, num_heads, N, head_dim)
-        key = key.view(B_win, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)      # (B_win, num_heads, N, head_dim)
-        value = value.view(B_win, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)  # (B_win, num_heads, N, head_dim)
-
-        # 글로벌 토큰 추가
-        global_tokens = self.global_tokens.unsqueeze(0).expand(B_win, -1, -1)
-        global_tokens = global_tokens.view(B_win, self.num_heads, self.num_global_tokens, self.head_dim)
-        query = torch.cat([global_tokens, query], dim=2)  # (B_win, num_heads, num_global_tokens + N, head_dim)
-        key = torch.cat([global_tokens, key], dim=2)
-        value = torch.cat([global_tokens, value], dim=2)
-
-        # 어텐션 계산
-        attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (self.head_dim ** 0.5)
-        attention_weights = F.softmax(attention_scores, dim=-1)
-        out = torch.matmul(attention_weights, value)  # (B_win, num_heads, num_global_tokens + N, head_dim)
-
-        # 글로벌 토큰 제거
-        out = out[:, :, self.num_global_tokens:, :]  
-        out = out.permute(0, 1, 3, 2).contiguous().view(B_win, self.inter_channels, self.window_size, self.window_size)
-
-        # 윈도우 되돌리기
-        x_un = window_unpartition(out, self.window_size, H, W, B)
-        z = self.W_z(x_un) """
-        
         return z, attention_weights
 
 class DoubleConv(nn.Module):
@@ -199,7 +169,6 @@ class DenseNetSAEncoder(DenseNet, EncoderMixin):
         self.cross_attention_next_4 = NonLocalBlock(in_channels=1792, inter_channels=896, 
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.compress_4 = nn.Conv2d(5376, 1792, kernel_size=1, bias=False)
-        self.double_conv_4 = DoubleConv(1792, 1792, 1792)
 
         # stage5용 Non-Local Block
         self.cross_attention_prev_5 = NonLocalBlock(in_channels=1920, inter_channels=960,
@@ -209,7 +178,6 @@ class DenseNetSAEncoder(DenseNet, EncoderMixin):
         self.cross_attention_next_5 = NonLocalBlock(in_channels=1920, inter_channels=960,
                                                     num_heads=self.num_heads, window_size=self.window_size, num_global_tokens=self.num_global_tokens)
         self.compress_5 = nn.Conv2d(5760, 1920, kernel_size=1, bias=False)
-        self.double_conv_5 = DoubleConv(1920, 1920, 1920)
 
     def make_dilated(self, *args, **kwargs):
         raise ValueError(
@@ -296,7 +264,7 @@ class DenseNetSAEncoder(DenseNet, EncoderMixin):
 
                     xt_cat = torch.cat([xt1, xt2, xt3], dim=1)
                     xt_cat = self.compress_4(xt_cat)
-                    xt_downcross = self.double_conv_4(xt_cat)
+                    xt_downcross = xt_cat
 
                     skip_main = xt_downcross + x_main  # Residual Connection
 
@@ -313,7 +281,7 @@ class DenseNetSAEncoder(DenseNet, EncoderMixin):
 
                     xt_cat = torch.cat([xt1, xt2, xt3], dim=1)
                     xt_cat = self.compress_5(xt_cat)
-                    xt_downcross = self.double_conv_5(xt_cat)
+                    xt_downcross = xt_cat
 
                     skip_main = xt_downcross + x_main  # Residual Connection
 
