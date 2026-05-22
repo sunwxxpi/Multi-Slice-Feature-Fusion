@@ -129,3 +129,58 @@ class COCA_dataset(Dataset):
             sample = self.transform(sample)
 
         return sample
+
+def load_hu_stats(path):
+    # hu_stats_433.json -> ct_normalization 인자 dict
+    import json
+    with open(path, 'r') as f:
+        s = json.load(f)
+    return {k: float(s[k]) for k in ('lower', 'upper', 'mean', 'std')}
+
+class COCAVolumeDataset(Dataset):
+    """5-fold CV 용 per-case 볼륨 데이터셋 (MSFFM 미적용 = 단일 슬라이스 baseline).
+
+    image_dir / label_dir 에는 case 당 (D,H,W) .npy 가 있고 memmap 으로 읽는다.
+    sample_list 의 각 항목은 `case{gidx:04d}_slice{n:03d}` (n = triplet 시작 인덱스).
+    MSFFM 브랜치와 동일한 fold 자산을 공유하되, 인접 슬라이스 없이 center(n+1)
+    한 장만 (H,W) 로 반환한다 → 기존 COCA_dataset 과 동일한 1채널 입력 형식.
+    center 슬라이스 집합·라벨이 MSFFM 평가와 일치하므로 공정 비교가 보장된다.
+    """
+    def __init__(self, image_dir, label_dir, sample_list, transform=None, hu_stats=None):
+        self.image_dir = image_dir
+        self.label_dir = label_dir
+        self.transform = transform
+        self.hu = hu_stats or {}
+        self.sample_list = [s.strip() for s in sample_list if s.strip()]
+        self._mm = {}  # cid -> (image_memmap, label_memmap), worker(fork) 별로 lazy 채움
+
+    def __len__(self):
+        return len(self.sample_list)
+
+    def _get_volumes(self, cid):
+        mm = self._mm.get(cid)
+        if mm is None:
+            img = np.load(os.path.join(self.image_dir, cid + '.npy'), mmap_mode='r')
+            lab = np.load(os.path.join(self.label_dir, cid + '.npy'), mmap_mode='r')
+            mm = (img, lab)
+            self._mm[cid] = mm
+        return mm
+
+    def __getitem__(self, idx):
+        sample_name = self.sample_list[idx]
+        cid, n = sample_name.split('_slice', 1)
+        n = int(n)
+
+        img_vol, lab_vol = self._get_volumes(cid)
+        # center(n+1) 한 장만 (H,W) 로 복사 (memmap 은 read-only → ct_normalization in-place 위해 사본 필요)
+        image = np.array(img_vol[n + 1])
+        label = np.array(lab_vol[n + 1])
+
+        image = ct_normalization(image, **self.hu)
+
+        sample = {'image': image, 'label': label, 'case_name': sample_name}
+
+        if self.transform:
+            sample = self.transform(sample)
+
+        return sample
