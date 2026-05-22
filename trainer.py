@@ -12,7 +12,12 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 from tqdm import tqdm
 from utils import PolyLRScheduler, DiceLoss, powerset
-from datasets.dataset import shuffle_within_batch, COCA_dataset, RandomAugmentation, Resize, ToTensor
+from datasets.dataset import (shuffle_within_batch, COCA_dataset, COCAVolumeDataset,
+                              load_hu_stats, RandomAugmentation, Resize, ToTensor)
+
+def _read_fold_list(list_dir, k):
+    with open(os.path.join(list_dir, f"fold{k}.txt"), 'r') as f:
+        return [ln.strip() for ln in f if ln.strip()]
 
 def trainer_coca(args, model, snapshot_path):
     logging.basicConfig(filename=snapshot_path + "/log.txt", 
@@ -28,17 +33,34 @@ def trainer_coca(args, model, snapshot_path):
     train_transform = T.Compose([RandomAugmentation(),
                                  Resize(output_size=[args.img_size, args.img_size]),
                                  ToTensor()])
-    db_train = COCA_dataset(base_dir=args.root_path,
-                            list_dir=args.list_dir,
-                            split="train",
-                            transform=train_transform)
-    
     val_transform = T.Compose([Resize(output_size=[args.img_size, args.img_size]),
                                ToTensor()])
-    db_val = COCA_dataset(base_dir=args.root_path,
-                          list_dir=args.list_dir,
-                          split="val",
-                          transform=val_transform)
+
+    if getattr(args, 'use_5fold_cv', False):
+        # 433-case 통합 풀의 case 단위 5-fold. train = fold_idx 제외 4개 fold, val = fold_idx.
+        hu = load_hu_stats(args.hu_stats_path)
+        image_dir = os.path.join(args.root_path_5fold, 'images')
+        label_dir = os.path.join(args.root_path_5fold, 'labels')
+        train_samples = []
+        for k in range(5):
+            if k == args.fold_idx:
+                continue
+            train_samples += _read_fold_list(args.list_dir_5fold, k)
+        val_samples = _read_fold_list(args.list_dir_5fold, args.fold_idx)
+        db_train = COCAVolumeDataset(image_dir, label_dir, train_samples,
+                                     transform=train_transform, hu_stats=hu)
+        db_val = COCAVolumeDataset(image_dir, label_dir, val_samples,
+                                   transform=val_transform, hu_stats=hu)
+        logging.info(f"5-fold CV: val fold={args.fold_idx}, train folds={[k for k in range(5) if k != args.fold_idx]}")
+    else:
+        db_train = COCA_dataset(base_dir=args.root_path,
+                                list_dir=args.list_dir,
+                                split="train",
+                                transform=train_transform)
+        db_val = COCA_dataset(base_dir=args.root_path,
+                              list_dir=args.list_dir,
+                              split="val",
+                              transform=val_transform)
 
     print("The length of train set is: {}".format(len(db_train)))
     print("The length of validation set is: {}".format(len(db_val)))
@@ -70,7 +92,11 @@ def trainer_coca(args, model, snapshot_path):
     max_epoch = args.max_epochs
     best_val_loss = float('inf')
     best_model_path = None
-    
+
+    patience = getattr(args, 'early_stopping_patience', 0)
+    min_delta = getattr(args, 'early_stopping_min_delta', 0.0)
+    patience_counter = 0
+
     scaler = GradScaler()
     
     for epoch_num in tqdm(range(1, max_epoch + 1), ncols=70):
@@ -230,19 +256,22 @@ def trainer_coca(args, model, snapshot_path):
         writer.add_scalar('val/val_loss', val_loss, epoch_num)
         logging.info('Validation - epoch %d - val_dice_loss: %f, val_ce_loss: %f, val_loss: %f' % (epoch_num, val_dice_loss, val_ce_loss, val_loss))
 
-        if val_loss < best_val_loss:
+        if val_loss < best_val_loss - min_delta:
             best_val_loss = val_loss
-            
+            patience_counter = 0
+
             if best_model_path and os.path.exists(best_model_path):
                 os.remove(best_model_path)
-            
+
             best_model_path = os.path.join(snapshot_path, f'epoch_{epoch_num}_{best_val_loss:.4f}_best_model.pth')
             if isinstance(model, nn.DataParallel):
                 torch.save(model.module.state_dict(), best_model_path)
             else:
                 torch.save(model.state_dict(), best_model_path)
-                
+
             logging.info(f"Best model saved to {best_model_path} with val_loss: {best_val_loss:.4f}")
+        else:
+            patience_counter += 1
 
         if epoch_num == max_epoch:
             save_model_path = os.path.join(snapshot_path, f'epoch_{epoch_num}_{val_loss:.4f}.pth')
@@ -252,6 +281,11 @@ def trainer_coca(args, model, snapshot_path):
                 torch.save(model.state_dict(), save_model_path)
                 
             logging.info(f"Final epoch model saved to {save_model_path} with val_loss: {val_loss:.4f}")
+
+        if patience > 0 and patience_counter >= patience:
+            logging.info(f"Early stopping at epoch {epoch_num} "
+                         f"(no val_loss improvement for {patience} epochs, best={best_val_loss:.4f})")
+            break
 
     writer.close()
     return "Training Finished!"

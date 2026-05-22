@@ -21,6 +21,14 @@ parser.add_argument('--finetune_exp_setting', type=str, default='', help='descri
 parser.add_argument('--enable_finetuning', action="store_true", help='Path to model checkpoint for finetuning')
 parser.add_argument('--deterministic', type=int, default=1, help='whether use deterministic training')
 parser.add_argument('--seed', type=int, default=42, help='random seed')
+# 5-fold CV 옵션 (기본 비활성, 단일 hold-out 경로와 하위 호환)
+parser.add_argument('--use_5fold_cv', action="store_true", help='use 433-case stratified 5-fold CV')
+parser.add_argument('--fold_idx', type=int, default=0, help='validation fold index (0..4)')
+parser.add_argument('--root_path_5fold', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold', help='5-fold per-case volume root (images/, labels/)')
+parser.add_argument('--list_dir_5fold', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold list dir (fold0.txt..fold4.txt)')
+parser.add_argument('--hu_stats_path', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU normalization stats json')
+parser.add_argument('--early_stopping_patience', type=int, default=50, help='stop if val_loss not improved for N epochs (0=disabled)')
+parser.add_argument('--early_stopping_min_delta', type=float, default=0.0, help='min val_loss improvement to reset patience')
 
 # network related parameters
 parser.add_argument('--encoder', type=str,
@@ -57,7 +65,12 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
 
-    net = EMCAD_SA_Net(num_classes=args.num_classes, 
+    # 5-fold 모드: exp_setting 에 fold 인덱스가 들어 있는지 점검 (불일치 시 경고만)
+    if args.use_5fold_cv and f"fold{args.fold_idx}" not in args.exp_setting:
+        print(f"[warn] --fold_idx={args.fold_idx} 인데 --exp_setting='{args.exp_setting}' 에 "
+              f"'fold{args.fold_idx}' 가 없습니다. 체크포인트 경로 충돌에 주의하세요.")
+
+    net = EMCAD_SA_Net(num_classes=args.num_classes,
                    kernel_sizes=args.kernel_sizes, 
                    expansion_factor=args.expansion_factor, 
                    dw_parallel=not args.no_dw_parallel, 

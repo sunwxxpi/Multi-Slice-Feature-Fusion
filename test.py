@@ -24,6 +24,12 @@ parser.add_argument('--deterministic', type=int, default=1, help='whether use de
 parser.add_argument('--seed', type=int, default=42, help='random seed')
 parser.add_argument('--is_savenii', action="store_true", help='whether to save results during inference')
 parser.add_argument('--z_spacing', type=int, default=3, help='z spacing of the volume')
+# 5-fold CV 옵션 (기본 비활성, 단일 hold-out 경로와 하위 호환)
+parser.add_argument('--use_5fold_cv', action="store_true", help='use 433-case stratified 5-fold CV')
+parser.add_argument('--fold_idx', type=int, default=0, help='validation fold index (0..4) = 평가 셋')
+parser.add_argument('--root_path_5fold', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold', help='5-fold per-case volume root (images/, labels/)')
+parser.add_argument('--list_dir_5fold', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold list dir (fold0.txt..fold4.txt)')
+parser.add_argument('--hu_stats_path', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU normalization stats json')
 
 # network related parameters
 parser.add_argument('--encoder', type=str,

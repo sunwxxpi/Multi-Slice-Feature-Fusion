@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms as T
 from matplotlib.patches import Rectangle
 from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric, SurfaceDistanceMetric
-from datasets.dataset import COCA_dataset, Resize, ToTensor
+from datasets.dataset import COCA_dataset, COCAVolumeDataset, load_hu_stats, Resize, ToTensor
 
 # 전역 딕셔너리: forward hook을 통해 각 NonLocalBlock의 attention map을 저장
 attn_dict = {}
@@ -249,10 +249,19 @@ def visualize_attention(attn_dict, input_image, label, file_name, save_path):
 def inference(args, model, test_save_path: str = None):
     test_transform = T.Compose([Resize(output_size=[args.img_size, args.img_size]),
                                 ToTensor()])
-    db_test = COCA_dataset(base_dir=args.root_path,
-                           list_dir=args.list_dir,
-                           split="test",
-                           transform=test_transform)
+    if getattr(args, 'use_5fold_cv', False):
+        # 평가 대상은 학습 때의 validation fold (fold_idx). per-case 볼륨에서 로드.
+        hu = load_hu_stats(args.hu_stats_path)
+        with open(os.path.join(args.list_dir_5fold, f"fold{args.fold_idx}.txt"), 'r') as f:
+            test_samples = [ln.strip() for ln in f if ln.strip()]
+        db_test = COCAVolumeDataset(os.path.join(args.root_path_5fold, 'images'),
+                                    os.path.join(args.root_path_5fold, 'labels'),
+                                    test_samples, transform=test_transform, hu_stats=hu)
+    else:
+        db_test = COCA_dataset(base_dir=args.root_path,
+                               list_dir=args.list_dir,
+                               split="test",
+                               transform=test_transform)
     testloader = DataLoader(db_test, batch_size=1, shuffle=False, num_workers=1)
     logging.info(f"{len(testloader)} test iterations per epoch")
 
