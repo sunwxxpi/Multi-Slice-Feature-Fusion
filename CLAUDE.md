@@ -112,5 +112,5 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 | `EMCAD` | `EMCADNet` (`pvt_v2_b2`) | ❌ | EMCAD baseline (MSFFM 미적용). `EMCAD-SA` 의 대조군. |
 
 - **공통:** 학습 `train.py --use_5fold_cv`, 평가 `test.py --use_5fold_cv` (§3·§5). HU 정규화는 `hu_stats_433.json` (§6).
-- **MSFFM 브랜치(`main`/`EMCAD-SA`):** `NonLocalBlock` 은 fused SDPA(`F.scaled_dot_product_attention`)를 쓰며 q/k/v 를 반드시 `.contiguous()` 로 넘긴다 — torch 2.0 SDPA 가 마지막 축 연속을 요구하기 때문(누락 시 forward crash). attention 시각화 hook 은 기본 비활성, 대상 `NonLocalBlock` 의 `return_attention=True` + `test.py`/`tester.py` 의 hook·`visualize_attention` 주석 해제로 opt-in.
+- **MSFFM 브랜치(`main`/`EMCAD-SA`):** `NonLocalBlock` 은 fused SDPA(`F.scaled_dot_product_attention`)를 쓰며 q/k/v 를 반드시 `.contiguous()` 로 넘긴다 — torch 2.0 SDPA 가 마지막 축 연속을 요구하기 때문(누락 시 forward crash). attention 시각화 hook 은 기본 비활성, `test.py --save_attention` 플래그 1개로 opt-in (자동으로 모든 `NonLocalBlock` 의 `return_attention=True` 토글 + hook 등록 + `attention_vis/` 저장).
 - 각 브랜치는 자체 코드/문서를 갖는다. 본 표는 `main` 기준 정리이며 다른 브랜치 세부는 해당 브랜치를 따른다.

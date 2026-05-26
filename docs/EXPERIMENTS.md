@@ -96,7 +96,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py \
 | `efficientnet-b4_sa` | `review_5fold_msffm_efficientnet-b4_unet_fold{0..4}_seed42` | `review_5fold_msffm_efficientnet-b4_segformer_fold{0..4}_seed42` |
 | `mit_b2_sa` | `review_5fold_msffm_mit_b2_unet_fold{0..4}_seed42` | `review_5fold_msffm_mit_b2_segformer_fold{0..4}_seed42` |
 
-→ main = **8 config × 5 fold = 40 trainings**. baseline(비-MSFFM)·PVTv2-b2·ablation 은 본 브랜치 범위에서 제외 (다른 브랜치/추후 추가).
+→ main = **8 config × 5 fold = 40 trainings**. baseline(비-MSFFM) 은 `single_slice` 브랜치에서 같은 encoder 의 표준판(`_sa` 제거: `resnet50` / `densenet201` / `efficientnet-b4` / `mit_b2`)으로 **페어 병렬 운영** — encoder 별로 main `_sa` ↔ single_slice 표준 을 동시 학습해 MSFFM 기여를 직접 대조한다 (워크플로: `TODO.md` §2 Phase 4.3). single_slice 측 명명 규약은 `review_5fold_baseline_{encoder}_{decoder}_fold{k}_seed42`. 산출물은 평가·집계 후 main `model/`·`test_log/` 로 복사하고 worktree 정리 (CLAUDE.md §10 branch map). PVTv2-b2(EMCAD/EMCAD-SA 브랜치 소관) · loss 교체 등 ablation 은 본 브랜치 범위 밖, 추후 별도.
 
 ## 4. 파인튜닝 워크플로 (`--enable_finetuning`)
 
