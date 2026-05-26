@@ -99,3 +99,18 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 - `docs/EXPERIMENTS.md` — 학습/평가 명령 예시, exp_setting 명명 규약, 파인튜닝 워크플로.
 - `TODO.md` — 5-fold stratified CV 전환 계획. 결정 사항, Phase 별 작업 목록, 영향 받는 코드/문서 목록, 원고 Methods 삽입 문구 초안을 모두 담는다. 5-fold 관련 작업 시 1차 참고.
 - `MSFFM_full_20251223.pdf` — 원고 (figure / table 의 1차 출처).
+
+## 10. 브랜치 맵 (Branch Map)
+
+본 저장소는 MSFFM 의 ablation·비교를 위해 백본과 MSFFM 적용 여부별로 브랜치를 나눈다. 모든 브랜치는 동일한 5-fold CV 자산(`COCA_3frames_5fold`)·center 슬라이스 집합·라벨·3D 합성 방식을 공유해 공정 비교를 보장한다 (입력 채널 수만 다름).
+
+| 브랜치 | 진입점 / 모델 | MSFFM | 설명 |
+|---|---|---|---|
+| `main` | `smp.Unet`/`smp.Segformer` + `*_sa` encoder | ✅ | 본 연구 본체. MSFFM 을 SMP 백본(`resnet50_sa` / `densenet201_sa` / `efficientnet-b4_sa` / `mit_b2_sa`)에 plug-in 한 2.5D 프레임워크. **신규 작업의 기준 브랜치.** |
+| `single_slice` | `smp.Unet`/`smp.Segformer` + 표준 encoder | ❌ | 단일 슬라이스 2D baseline. 표준 encoder(`resnet50` / `densenet201` / `efficientnet-b4` / `mit_b2`) + center 1채널 입력 (`COCAVolumeDataset` 이 center 한 장만 반환). MSFFM 의 inter-slice 기여를 분리하는 대조군. |
+| `EMCAD-SA` | `EMCAD_SA_Net` (`pvt_v2_b2`) | ✅ | EMCAD 디코더 백본 + MSFFM 통합 변형. MSFFM 본체는 `networks/emcad/pvtv2.py` 의 `NonLocalBlock`. SMP 인코더 경로와 무관(자체 backbone). |
+| `EMCAD` | `EMCADNet` (`pvt_v2_b2`) | ❌ | EMCAD baseline (MSFFM 미적용). `EMCAD-SA` 의 대조군. |
+
+- **공통:** 학습 `train.py --use_5fold_cv`, 평가 `test.py --use_5fold_cv` (§3·§5). HU 정규화는 `hu_stats_433.json` (§6).
+- **MSFFM 브랜치(`main`/`EMCAD-SA`):** `NonLocalBlock` 은 fused SDPA(`F.scaled_dot_product_attention`)를 쓰며 q/k/v 를 반드시 `.contiguous()` 로 넘긴다 — torch 2.0 SDPA 가 마지막 축 연속을 요구하기 때문(누락 시 forward crash). attention 시각화 hook 은 기본 비활성, 대상 `NonLocalBlock` 의 `return_attention=True` + `test.py`/`tester.py` 의 hook·`visualize_attention` 주석 해제로 opt-in.
+- 각 브랜치는 자체 코드/문서를 갖는다. 본 표는 `main` 기준 정리이며 다른 브랜치 세부는 해당 브랜치를 따른다.
