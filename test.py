@@ -44,6 +44,8 @@ parser.add_argument('--fold_idx', type=int, default=0, help='validation fold ind
 parser.add_argument('--root_path_5fold', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold', help='5-fold per-case volume root (images/, labels/)')
 parser.add_argument('--list_dir_5fold', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold list dir (fold0.txt..fold4.txt)')
 parser.add_argument('--hu_stats_path', type=str, default='/home/psw/AVS-Diagnosis/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU normalization stats json')
+# Attention 시각화 옵션. 켜면 NonLocalBlock 들의 return_attention=True 자동 토글 + hook 자동 등록 + 시각화 저장.
+parser.add_argument('--save_attention', action="store_true", help='enable attention visualization saving')
 args = parser.parse_args()
 
 if __name__ == "__main__":
@@ -99,14 +101,16 @@ if __name__ == "__main__":
     else:
         test_save_path = None
 
-    """ # encoder가 존재한다면, NonLocalBlock들에 대해 forward hook을 등록합니다.
-    if hasattr(net, 'encoder'):
-        net.encoder.cross_attention_prev_3.register_forward_hook(get_attn_hook("stage3_prev"))
-        net.encoder.cross_attention_self_3.register_forward_hook(get_attn_hook("stage3_self"))
-        net.encoder.cross_attention_next_3.register_forward_hook(get_attn_hook("stage3_next"))
-        net.encoder.cross_attention_prev_4.register_forward_hook(get_attn_hook("stage4_prev"))
-        net.encoder.cross_attention_self_4.register_forward_hook(get_attn_hook("stage4_self"))
-        net.encoder.cross_attention_next_4.register_forward_hook(get_attn_hook("stage4_next")) """
-    
+    # --save_attention 시 NonLocalBlock 자동 검색 → return_attention=True 토글 + hook 등록.
+    # 백본별 attribute 명 다른 문제 (densenet/efficientnet/mit) 회피 — `return_attention` 속성 보유 모듈을 모두 잡는다.
+    if args.save_attention and hasattr(net, 'encoder'):
+        hook_count = 0
+        for module_name, module in net.encoder.named_modules():
+            if hasattr(module, 'return_attention'):
+                module.return_attention = True
+                module.register_forward_hook(get_attn_hook(module_name))
+                hook_count += 1
+        print(f"Registered attention hooks on {hook_count} NonLocalBlock(s).")
+
     # 추론 실행
     inference(args, net, test_save_path)

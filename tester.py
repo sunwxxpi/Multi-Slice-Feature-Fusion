@@ -23,8 +23,10 @@ def get_attn_hook(name):
     """
     def hook(module, input, output):
         # output: (z, attention_weights) → attention_weights: (B, num_heads, N, N)
-        attn_dict[name] = output[1].detach().cpu()
-        
+        # 평상시 fused SDPA 경로는 None 반환. None 가드 없으면 AttributeError.
+        if output[1] is not None:
+            attn_dict[name] = output[1].detach().cpu()
+
     return hook
 
 def parse_case_and_slice_id(full_name: str) -> tuple:
@@ -299,24 +301,30 @@ def inference(args, model, test_save_path: str = None):
     pred_slices_dict = {}
     label_slices_dict = {}
 
-    # attention 시각화 이미지를 저장할 폴더 설정
-    if test_save_path:
-        attn_vis_dir = os.path.join(test_save_path, "attention_vis")
-    else:
-        attn_vis_dir = os.path.join("./test_log", "attention_vis")
-    os.makedirs(attn_vis_dir, exist_ok=True)
-    
+    # attention 시각화 이미지를 저장할 폴더 설정 (--save_attention 켜진 경우에만 mkdir).
+    # fallback 경로에 exp_setting 포함 — 여러 run 의 시각화가 한 폴더에 섞이는 문제 방지.
+    save_attention = getattr(args, 'save_attention', False)
+    attn_vis_dir = None
+    if save_attention:
+        if test_save_path:
+            attn_vis_dir = os.path.join(test_save_path, "attention_vis")
+        else:
+            attn_vis_dir = os.path.join("./test_log", "attention_vis_fallback", args.exp_setting)
+        os.makedirs(attn_vis_dir, exist_ok=True)
+
     for sampled_batch in tqdm(testloader, total=len(testloader), desc="Inference"):
+        # 매 slice 마다 누수 방지 — hook 만 켜고 시각화 OFF 인 조합에서도 RAM 폭발 차단.
+        attn_dict.clear()
+
         image, label, full_case_name = sampled_batch["image"], sampled_batch["label"], sampled_batch['case_name'][0]
         case_id, slice_id = parse_case_and_slice_id(full_case_name)
         img_2d = image.squeeze(0).cpu().numpy()
         pred_2d, label_2d = run_inference_on_slice(image, label, model)
-        
-        """ # attention hook을 통해 저장된 정보를 이용해 "특정 query 픽셀" 기반의 attention 시각화 (center slice의 레이블 전달)
-        visualize_attention(attn_dict, img_2d, label_2d, full_case_name, attn_vis_dir)
-        # 다음 샘플을 위해 attn_dict 초기화
-        attn_dict.clear() """
-        
+
+        if attn_vis_dir is not None:
+            # query 픽셀(GT lesion 평균 좌표) 기반 attention 시각화. GT 없으면 visualize_attention 내부에서 skip.
+            visualize_attention(attn_dict, img_2d, label_2d, full_case_name, attn_vis_dir)
+
         accumulate_slice_prediction(image_slices_dict, pred_slices_dict, label_slices_dict, case_id, slice_id, pred_2d, label_2d, img_2d)
 
     dice_metric = DiceMetric(include_background=True, reduction="mean", ignore_empty=True)
