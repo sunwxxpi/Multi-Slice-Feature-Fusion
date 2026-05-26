@@ -102,9 +102,11 @@ class NonLocalBlock(nn.Module):
 
         if self.return_attention:
             # 시각화 경로: fused 커널은 가중치를 반환하지 않으므로 명시적으로 계산.
-            attention_scores = torch.matmul(query, key.transpose(-2, -1)) / (self.head_dim ** 0.5)
+            # autocast(fp16) 안에서 softmax overflow/underflow 방지 위해 Q/K 를 fp32 로 cast.
+            q_f, k_f = query.float(), key.float()
+            attention_scores = torch.matmul(q_f, k_f.transpose(-2, -1)) / (self.head_dim ** 0.5)
             attention_weights = F.softmax(attention_scores, dim=-1)
-            out = torch.matmul(attention_weights, value)
+            out = torch.matmul(attention_weights.to(value.dtype), value)
         else:
             # fused scaled dot-product attention: 동일 연산, 메모리/속도 이득 (scale 기본 1/sqrt(head_dim)).
             out = F.scaled_dot_product_attention(query.contiguous(), key.contiguous(), value.contiguous())

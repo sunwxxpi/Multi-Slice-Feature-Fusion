@@ -89,14 +89,18 @@ train.py: smp.Unet(encoder_name="resnet50_sa", ...)
 
 ## 5. Attention 시각화 hook
 
-- `tester.py:get_attn_hook` 가 `(z, attention_weights)` 튜플의 두 번째 원소를 `attn_dict` 에 저장한다. forward 는 평상시 fused SDPA 경로로 `attention_weights=None` 을 반환하므로, 시각화하려면 대상 `NonLocalBlock` 의 `return_attention=True` 로 명시 계산 경로를 켜야 가중치가 나온다.
-- `test.py` 에 hook 등록 코드가 주석 처리되어 있다 (lines 96–103). 사용 시:
-  1. 대상 `NonLocalBlock` 들의 `return_attention=True` 설정
-  2. `test.py` 의 hook 블록 주석 해제
-  3. `tester.py:inference` 의 `visualize_attention(...)` 호출 주석 해제
-  4. NonLocalBlock 의 attention head 가 1 이상이어야 의미 있는 시각화가 나온다.
-- 저장 위치는 `test_save_path/attention_vis/` (없으면 `./test_log/attention_vis/`).
-- query 픽셀은 ground-truth lesion 의 평균 좌표로 자동 선정된다. GT 가 없으면 해당 슬라이스는 스킵.
+- `tester.py:get_attn_hook` 가 `(z, attention_weights)` 튜플의 두 번째 원소를 `attn_dict` 에 저장한다. 평상시 forward 는 fused SDPA 경로(`attention_weights=None`) — 시각화하려면 대상 `NonLocalBlock` 의 `return_attention=True` 로 명시 계산 경로를 켜야 가중치가 나온다.
+- **사용법: `test.py --save_attention` 단일 플래그.** `test.py` 가 자동으로
+  1. `net.encoder.named_modules()` 순회 → `return_attention` 속성 보유 모듈(모든 `NonLocalBlock`) 자동 검색
+  2. 각 모듈의 `return_attention=True` 토글
+  3. `get_attn_hook(module_name)` 등록
+  를 수행. 백본 무관 동작 (resnet50_sa / densenet201_sa / efficientnet-b4_sa / mit_b2_sa 공통).
+- `tester.py:inference` 는 `args.save_attention` 가 True 일 때만 `visualize_attention(...)` 호출 + `attn_vis_dir` mkdir 수행. OFF 시 빈 디렉터리 생성도 없음.
+- 저장 위치: `test_save_path/attention_vis/` (= `--is_savenii` 켜진 경우) 또는 fallback `./test_log/attention_vis_fallback/{exp_setting}/` (exp_setting 포함하여 run 간 섞임 방지).
+- 메모리 안전: 매 slice 시작 시 `attn_dict.clear()` — 시각화 OFF + hook ON 같은 잘못된 조합에서도 누수 없음.
+- 수치 안정: 명시 attention 경로는 autocast(fp16) 안이라도 Q/K 를 fp32 로 cast 후 softmax — overflow/underflow 방지.
+- query 픽셀은 ground-truth lesion 의 평균 좌표로 자동 선정. GT 없으면 해당 슬라이스 skip.
+- NonLocalBlock 의 attention head 는 8 (논문 명시값) — 의미 있는 시각화에 충분.
 
 ## 6. 결과물 형식
 
