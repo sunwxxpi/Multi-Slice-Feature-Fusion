@@ -96,7 +96,13 @@
 
 - [x] **Smoke test (단일 fold) — 종단간 정상.** `--fold_idx 0 --max_epochs 2` 로 경로만 검증. 확인된 것: train 16,685 / val 4,105 fold 분할, best_model 저장·교체, test 4,105 iter → `results.txt` 의 3D 메트릭 생성(2 epoch 라 Dice≈0 정상), `aggregate_5fold_results.py` 가 결과를 Markdown 으로 파싱 (exit 0). smoke 산출물은 점검 후 정리, 덮어쓰인 `*_model_summary.txt` 는 원복.
 - [x] **Early stopping 코드 경로 — smoke 에서 무에러 실행 확인.** 매 epoch best 비교 + 카운터 분기(`patience>0 && counter>=patience` → epoch 루프 break) 정상 실행 (2 epoch 라 실제 break 미발생). 본 실험은 `patience=50` 운용. 필요 시 `--early_stopping_patience 5` 로 강제 break 별도 확인 가능 (미수행).
-- [ ] **본 실험 — main 5-fold 그리드** (⏳ 미실행). 이 브랜치 실행 가능 = **4 encoder(`resnet50_sa/densenet201_sa/efficientnet-b4_sa/mit_b2_sa`) × 2 decoder(`unet/segformer`) = 8 config**, 각 fold0~4 → **40 trainings**. 이어서 평가 8 config × 5 + config별 `aggregate_5fold_results.py`. 명명·병렬 배치는 `docs/EXPERIMENTS.md §3·§8.2`. baseline(비-MSFFM)·PVTv2-b2·ablation 은 본 브랜치 범위 제외 (다른 브랜치/추후 추가).
+- [ ] **본 실험 — main 5-fold 그리드** (⏳ 진행 중, resnet 페어 5-fold 우선). 이 브랜치 실행 가능 = **4 encoder(`resnet50_sa/densenet201_sa/efficientnet-b4_sa/mit_b2_sa`) × 2 decoder(`unet/segformer`) = 8 config**, 각 fold0~4 → **40 trainings**. 이어서 평가 8 config × 5 + config별 `aggregate_5fold_results.py`. 명명·병렬 배치는 `docs/EXPERIMENTS.md §3·§8.2`. baseline(비-MSFFM) 은 별도 `single_slice` 브랜치에서 **페어로 병렬 운영** (현 워크플로: main `_sa` 그리드 ↔ single_slice 표준 encoder 그리드 — encoder 별로 동시에 학습해 MSFFM 기여를 직접 대조). PVTv2-b2(EMCAD/EMCAD-SA 브랜치 소관) · loss 교체 등 ablation 은 본 브랜치 범위 밖, 추후 별도. 현재 GPU0 main `resnet50_sa` × unet × fold0~4 + GPU1 single_slice 브랜치 worktree(`/home/psw/SAU-Net-single_slice`) `resnet50` × unet × fold0~4 가 병렬로 진행 중. baseline 산출물(`model/Unet_resnet50/`, `test_log/Unet_resnet50/`)은 평가·집계 후 main 디렉터리로 복사, single_slice worktree 는 `git worktree remove --force` 로 정리 (post 스크립트 자동화).
+- [ ] **Phase 4.4 — MSFFM 작동성 검증 게이트 (resnet 페어 완료 직후, densenet 진행 전 필수).** 현 학습 그리드의 resnet 짝(`resnet50_sa` main / `resnet50` single_slice) 5-fold 학습·평가·집계가 끝난 시점에, densenet 페어 진입 전에 MSFFM 이 의도대로 2.5D 역할을 수행 중인지 확인한다. 학습 그리드 자체와 분리된 진단이므로 별도 exp_setting / fold0 best ckpt 1개로 수행 (현 그리드 산출물 무오염).
+  - **DEBUG_RESIDUAL 진단** — `segmentation_models_pytorch/encoders/resnet_sa.py` 의 모듈 상수 `DEBUG_RESIDUAL = True` 로 켜고 fold0 best ckpt 로 짧은 inference 1회 (소수 batch). 출력되는 `Residual branch mean abs value` 로 MSFFM 가 ref feature 를 실질 변형 중인지(≈0 이면 dead branch) 정량 확인. 끝난 뒤 `False` 로 복구 (`CLAUDE.md §6` foot-gun).
+  - **Attention 시각화** — `docs/ARCHITECTURE.md §5` 절차: `test.py --save_attention --is_savenii` 로 inference 1회 (fold0 best ckpt). 플래그가 모든 `NonLocalBlock` 에서 `return_attention=True` 자동 토글 + hook 등록 + 시각화 저장을 한 번에 수행. lesion query 가 prev/next 의 어디를 보는지 히트맵을 `test_save_path/attention_vis/` 에서 확인.
+  - **채널 ablation (가장 결정적 증거)** — inference 시 input `[prev, ref, next]` 을 `[ref, ref, ref]` / `[zeros, ref, zeros]` / 정상 의 3 setting 으로 비교 (dataset.py `__getitem__` 또는 임시 wrapper 로 1줄 패치). MSFFM 만 ΔDice 큼 → 2.5D 신호 실제 사용 확정. baseline(`single_slice`)은 차이 없어야 정상 (center 만 사용).
+  - **Per-class 우위 패턴 확인** — fold0~4 평균에서 vessel continuity 높은 LAD/RCA 에서 MSFFM 우위가 큰지, LCA(짧고 흩어진 클래스)는 우위 작은지 점검. interim test 에서 이미 LAD 에서 MSFFM 강세 패턴 관측됨 — 5-fold 평균으로 결정적 확인.
+  - **통과 기준:** 최소 (DEBUG_RESIDUAL > 0 의미 있는 값) + (채널 ablation 에서 MSFFM ΔDice ≫ baseline ΔDice) 두 가지 충족 → densenet 페어 (`densenet201_sa` main / `densenet201` single_slice) 진행. 실패 시 그리드 중단하고 MSFFM 구현/통합부터 점검.
 
 ---
 
@@ -149,5 +155,12 @@ Phase 3  코드 수정  ✅
 Phase 4.1  Smoke test (fold0, 2 epoch)  ✅ 종단간 검증 완료 (산출물 정리됨)
    │
    └──► Phase 4.3  본 실험 main 8-config × 5 (40 trainings)  →  aggregate_5fold_results.py
-        ⏳ 아직 미실행 (model/·test_log/ 에 review_5fold_* 산출물 없음)
+        ⏳ 진행 중: resnet 페어 (resnet_sa main / resnet single_slice) 5-fold 학습+평가+집계
+           │
+           └──► Phase 4.4  MSFFM 작동성 검증 게이트
+                  (DEBUG_RESIDUAL · attention vis · 채널 ablation · per-class)
+                  │
+                  ├─ 통과 → densenet 페어 → efficientnet 페어 → mit 페어
+                  └─ 실패 → 그리드 중단, MSFFM 구현/통합 점검 후 재개
 ```
+
