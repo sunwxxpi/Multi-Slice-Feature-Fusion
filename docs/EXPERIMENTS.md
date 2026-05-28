@@ -21,7 +21,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
 
 - 모든 명령은 `CUDA_VISIBLE_DEVICES=0` 로 GPU 1개에 핀한다 — 미지정 시 다중 GPU 환경에서 DataParallel 이 보이는 GPU 를 전부 잡는다 (§5).
 - 인자 기본값은 원고 §2.3 의 학습 설정과 일치한다 (AdamW, lr=1e-5, batch=16, 300 epochs, PolyLR, MHA heads=8).
-- 학습이 시작되면 `./{NetClass}_{encoder}_model_summary.txt` 로 `torchinfo.summary` 결과가 덮어쓰기 저장된다 (저장소 루트). 모델 구조 비교용.
 
 ### 1.2 5-Fold Stratified CV (`TODO.md` §1 의 권장 워크플로)
 
