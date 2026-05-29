@@ -3,7 +3,7 @@
 ## 1. 원본 데이터셋
 
 - **출처:** Stanford AIMI — COCA (Coronary Calcium and Chest CT) https://aimi.stanford.edu/datasets/coca-coronary-calcium-chest-ct
-- **본 연구 사용 케이스:** 451 명 중 433 명 (train 300 / test 133, 원고 Table 1).
+- **본 연구 사용 케이스:** 451 명 중 433 명. 단일 hold-out 은 train 300 / test 133 (원고 Table 1), 5-fold CV 는 동일 433 통합 풀을 case 단위로 5분할 (§9).
 - **In-plane 해상도:** 512 × 512 고정. 본 코드도 `--img_size 512` 가 기본.
 - **클래스 (5):** 0=background, 1=LCA, 2=LAD, 3=LCX, 4=RCA. `--num_classes 5`.
 - 단일 케이스가 여러 카테고리에 동시 포함될 수 있다 (Table 1 의 Total 합계 ≠ unique 수).

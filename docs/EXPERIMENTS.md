@@ -16,7 +16,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
   --max_epochs 300 \
   --batch_size 16 \
   --base_lr   1e-5 \
-  --exp_setting review_msffm_resnet50_unet_fold0_seed42
+  --exp_setting msffm_resnet50_unet_fold0_seed42
 ```
 
 - 모든 명령은 `CUDA_VISIBLE_DEVICES=0` 로 GPU 1개에 핀한다 — 미지정 시 다중 GPU 환경에서 DataParallel 이 보이는 GPU 를 전부 잡는다 (§5).
@@ -30,7 +30,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
 CUDA_VISIBLE_DEVICES=0 python train.py --use_5fold_cv --fold_idx 0 \
   --encoder resnet50_sa --decoder unet \
   --max_epochs 300 --early_stopping_patience 50 --early_stopping_min_delta 0.0 \
-  --exp_setting review_5fold_msffm_resnet50_unet_fold0_seed42
+  --exp_setting msffm_resnet50_unet_fold0_seed42
 ```
 
 - `--fold_idx` 를 0~4 로 바꿔가며 총 5회 학습. exp_setting 의 `fold{K}` 부분도 함께 바꿔야 함 (불일치 시 경고만 출력되고 학습은 진행).
@@ -49,7 +49,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py \
   --list_dir  /path/to/COCA_3frames/lists_COCA \
   --encoder   resnet50_sa \
   --decoder   unet \
-  --exp_setting review_msffm_resnet50_unet_fold0_seed42 \
+  --exp_setting msffm_resnet50_unet_fold0_seed42 \
   --is_savenii      # NIfTI 출력이 필요할 때만
 ```
 
@@ -64,7 +64,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py \
   --use_5fold_cv --fold_idx 0 \
   --encoder   resnet50_sa \
   --decoder   unet \
-  --exp_setting review_5fold_msffm_resnet50_unet_fold0_seed42 \
+  --exp_setting msffm_resnet50_unet_fold0_seed42 \
   [--is_savenii]
 ```
 
@@ -72,37 +72,29 @@ CUDA_VISIBLE_DEVICES=0 python test.py \
 - `--root_path_5fold` / `--list_dir_5fold` / `--hu_stats_path` 기본값 사용 (보통 생략).
 - 5 fold 결과를 모두 모아 `aggregate_5fold_results.py --exp_template ...` 로 mean ± std 보고 (§8 참고).
 
-## 3. exp_setting 명명 규약 (관찰된 패턴)
+## 3. exp_setting 명명 규약
 
-`model/Unet_resnet50_sa/COCA_512/` 아래에 다음과 같은 디렉터리가 이미 존재한다:
+5-fold CV 패턴 (`TODO.md` §2 Phase 4). 단일 hold-out 시기의 `default` / `kmu_chest` 등은 디스크에 보존된 과거 디렉터리.
 
-| 이름 | 의미 |
-|---|---|
-| `default` | 초기 베이스라인 실행 |
-| `kmu_chest` | KMU Chest 코호트로 파인튜닝/평가 한 실험 |
-| `review_msffm_resnet50_unet_fold0_seed42` | 리뷰어 응답용 main run (seed 42, fold 0) |
-
-새 실험을 만들 때는 이 패턴(`review_<설정>_fold{N}_seed{S}`) 을 따른다.
-
-**5-fold CV 패턴** (`TODO.md` §2 Phase 4).
-
-**Main 그리드 — 이 브랜치 실행 가능 8 config (4 encoder × 2 decoder, 전부 +MSFFM `_sa`):** 명명 규약 `review_5fold_msffm_{encoder}_{decoder}_fold{k}_seed42` (encoder 라벨은 `_sa` 생략).
+**Main 그리드 — 이 브랜치 실행 가능 8 config (4 encoder × 2 decoder, 전부 +MSFFM `_sa`):** 명명 규약 `msffm_{encoder}_{decoder}_fold{k}_seed42` (encoder 라벨은 `_sa` 생략).
 
 | encoder (argparse 키) | decoder=unet | decoder=segformer |
 |---|---|---|
-| `resnet50_sa` | `review_5fold_msffm_resnet50_unet_fold{0..4}_seed42` | `review_5fold_msffm_resnet50_segformer_fold{0..4}_seed42` |
-| `densenet201_sa` | `review_5fold_msffm_densenet201_unet_fold{0..4}_seed42` | `review_5fold_msffm_densenet201_segformer_fold{0..4}_seed42` |
-| `efficientnet-b4_sa` | `review_5fold_msffm_efficientnet-b4_unet_fold{0..4}_seed42` | `review_5fold_msffm_efficientnet-b4_segformer_fold{0..4}_seed42` |
-| `mit_b2_sa` | `review_5fold_msffm_mit_b2_unet_fold{0..4}_seed42` | `review_5fold_msffm_mit_b2_segformer_fold{0..4}_seed42` |
+| `resnet50_sa` | `msffm_resnet50_unet_fold{0..4}_seed42` | `msffm_resnet50_segformer_fold{0..4}_seed42` |
+| `densenet201_sa` | `msffm_densenet201_unet_fold{0..4}_seed42` | `msffm_densenet201_segformer_fold{0..4}_seed42` |
+| `efficientnet-b4_sa` | `msffm_efficientnet-b4_unet_fold{0..4}_seed42` | `msffm_efficientnet-b4_segformer_fold{0..4}_seed42` |
+| `mit_b2_sa` | `msffm_mit_b2_unet_fold{0..4}_seed42` | `msffm_mit_b2_segformer_fold{0..4}_seed42` |
 
-→ main = **8 config × 5 fold = 40 trainings**. baseline(비-MSFFM) 은 `single_slice` 브랜치에서 같은 encoder 의 표준판(`_sa` 제거: `resnet50` / `densenet201` / `efficientnet-b4` / `mit_b2`)으로 **페어 병렬 운영** — encoder 별로 main `_sa` ↔ single_slice 표준 을 동시 학습해 MSFFM 기여를 직접 대조한다 (워크플로: `TODO.md` §2 Phase 4.3). single_slice 측 명명 규약은 `review_5fold_baseline_{encoder}_{decoder}_fold{k}_seed42`. 산출물은 평가·집계 후 main `model/`·`test_log/` 로 복사하고 worktree 정리 (CLAUDE.md §10 branch map). PVTv2-b2 비교는 별도 브랜치 페어(`EMCAD-SA` / `EMCAD`) 5-fold 로 운영. 페어 진행 순서: **resnet → EMCAD → densenet → efficientnet → mit** (`TODO.md` §6).
+→ main = **8 config × 5 fold = 40 trainings**. single_slice baseline 명명은 `baseline_{encoder}_{decoder}_fold{k}_seed42` (encoder 는 `_sa` 제거).
+
+**PVTv2-b2 backbone 페어 (`EMCAD-SA` / `EMCAD` 브랜치)는 본 표에 없다** — 모델 클래스(`EMCAD_SA_Net` / `EMCADNet`) 와 entrypoint 가 SMP 그리드와 달라 같은 축에 못 들어간다. 명명은 `emcad_sa_fold{k}_seed42` / `emcad_fold{k}_seed42`, 운영은 해당 브랜치 checkout 후 진행. branch map: `CLAUDE.md` §10, 페어 진행 상태: `TODO.md` §2 Phase 4.3.
 
 ## 4. 파인튜닝 워크플로 (`--enable_finetuning`)
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python train.py \
   --encoder resnet50_sa --decoder unet \
-  --exp_setting review_msffm_resnet50_unet_fold0_seed42 \
+  --exp_setting msffm_resnet50_unet_fold0_seed42 \
   --enable_finetuning \
   --finetune_exp_setting kmu_chest_finetune
 ```
@@ -177,7 +169,7 @@ train_cfg() {  # $1=GPU  $2="encoder decoder"
   for k in 0 1 2 3 4; do
     CUDA_VISIBLE_DEVICES=$gpu python train.py --use_5fold_cv --fold_idx $k \
       --encoder $enc --decoder $dec --max_epochs 300 --early_stopping_patience 50 \
-      --exp_setting review_5fold_msffm_${lab}_${dec}_fold${k}_seed42
+      --exp_setting msffm_${lab}_${dec}_fold${k}_seed42
   done
 }
 
@@ -195,10 +187,10 @@ for c in "${CONFIGS[@]}"; do
   for k in 0 1 2 3 4; do
     CUDA_VISIBLE_DEVICES=0 python test.py --use_5fold_cv --fold_idx $k \
       --encoder $enc --decoder $dec \
-      --exp_setting review_5fold_msffm_${lab}_${dec}_fold${k}_seed42
+      --exp_setting msffm_${lab}_${dec}_fold${k}_seed42
   done
   python aggregate_5fold_results.py \
-    --exp_template review_5fold_msffm_${lab}_${dec}_fold{fold}_seed42 \
+    --exp_template msffm_${lab}_${dec}_fold{fold}_seed42 \
     --encoder $enc --decoder $dec
 done
 ```
@@ -206,12 +198,9 @@ done
 ### 8.3 결과 집계 — `aggregate_5fold_results.py`
 
 - 입력: fold 별 `test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp}/{param}/results.txt` (`--exp_template` 의 `{fold}` 를 0..4 로 치환해 자동 합성) + `model/.../*_best_model.pth`.
-- 출력: **Markdown** (stdout + `aggregate_5fold_{title}.md` 동시 저장).
+- 출력: **Markdown** (stdout + `results/{title}.md` 동시 저장, `{title}` = `--exp_template` 의 `_fold{fold}` 제거 형태; 기본 `--results_dir ./results`, 디렉터리는 gitignored).
 - 포함 항목:
   - Run Summary: fold 별 best epoch / best val_loss / stop epoch.
   - Dice / mIoU / HD 표 3종 (행 = fold0..4 + mean ± std, 열 = LCA/LAD/LCX/RCA/Mean).
-- CLI 예: `python aggregate_5fold_results.py --exp_template review_5fold_msffm_resnet50_unet_fold{fold}_seed42 --encoder resnet50_sa --decoder unet`.
+- CLI 예: `python aggregate_5fold_results.py --exp_template msffm_resnet50_unet_fold{fold}_seed42 --encoder resnet50_sa --decoder unet`.
 
-### 8.4 모델 선택과 보고의 이중 사용
-
-같은 validation fold 가 (1) best epoch 선택 기준과 (2) 최종 성능 보고 대상으로 동시 사용된다. 미세한 optimism 이 있음 → 원고 Methods 에 명시 (`TODO.md` §5 의 영문 초안 참고).
