@@ -5,8 +5,10 @@
 ## 1. 전체 데이터 흐름
 
 ```
-NPZ (image: HxWx3, label: HxW)
+NPZ (image: HxWx3, label: HxW)        ← 단일 hold-out
    └─► COCA_dataset
+per-case .npy (D,H,W) memmap          ← 5-fold CV (--use_5fold_cv)
+   └─► COCAVolumeDataset (vol[n:n+3] → (H,W,3), vol[n+1] center label)
          ├─ ct_normalization  (clip + z-score)
          ├─ RandomAugmentation (rot90 / flip / rotate)
          ├─ Resize → 512x512
@@ -24,6 +26,8 @@ NPZ (image: HxWx3, label: HxW)
             ▼
    SegmentationHead  → logits (B, 5, H, W)
 ```
+
+> 두 dataset 클래스 모두 같은 transform 파이프라인을 거쳐 `(3, H, W)` 채널 입력을 만든다 — encoder 이후 흐름은 동일. 5-fold 데이터 자산·정규화 상수는 `docs/DATA.md §9`.
 
 ## 2. MSFFM 핵심 식 (원고 §2.2)
 

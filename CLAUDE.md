@@ -97,7 +97,7 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 - `docs/ARCHITECTURE.md` — MSFFM 내부 동작, encoder integration 흐름, attention 시각화 hook.
 - `docs/DATA.md` — COCA 데이터셋 포맷, npz 구조, list 파일, CT normalization.
 - `docs/EXPERIMENTS.md` — 학습/평가 명령 예시, exp_setting 명명 규약, 파인튜닝 워크플로.
-- `TODO.md` — 5-fold stratified CV 전환 계획. 결정 사항, Phase 별 작업 목록, 영향 받는 코드/문서 목록, 원고 Methods 삽입 문구 초안을 모두 담는다. 5-fold 관련 작업 시 1차 참고.
+- `TODO.md` — 5-fold stratified CV 전환 계획. 결정 사항, Phase 별 작업 목록(페어별 진행 상태), 영향 받는 코드/문서 목록을 담는다. 5-fold 관련 작업 시 1차 참고.
 - `MSFFM_full_20251223.pdf` — 원고 (figure / table 의 1차 출처).
 
 ## 10. 브랜치 맵 (Branch Map)

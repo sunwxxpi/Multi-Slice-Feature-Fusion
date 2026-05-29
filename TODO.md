@@ -8,7 +8,7 @@
 
 ## 1. 결정 사항
 
-결정의 배경 트레이드오프는 §4 "함정 / 주의 사항"과 §5 "원고 보고 문구" 에 반영되어 있다.
+결정의 배경 트레이드오프는 §4 "함정 / 주의 사항" 에 반영되어 있다.
 
 ### 1.1 데이터 풀 구성 — 원본 nnUNet 볼륨에서 재생성 (rebuild)
 
@@ -47,7 +47,6 @@
   - `val_loss` 가 최저로 갱신될 때마다 `best_model.pth` 저장 (= 현재 `trainer.py` 기존 로직).
   - 학습 종료 후 그 `best_model.pth` 를 같은 validation fold 에 평가한 메트릭을 **fold k 의 최종 성능**으로 사용.
   - 5개 fold 의 최종 성능 값을 모아 **mean ± std** 로 보고.
-  - 같은 셋이 best epoch 선택과 최종 보고에 모두 쓰이므로 미세한 optimism 이 있음. → Methods 에 솔직히 명시 (§5 참고).
 - **Early Stopping:**
   - `val_loss` 가 **patience=50 epoch** 동안 갱신되지 않으면 학습 중단.
   - `--max_epochs 300` 은 상한선으로만 작동. fold 마다 실제 종료 epoch 이 다를 수 있음.
@@ -56,7 +55,6 @@
 
 - 433 case voxel 분포에서 1회 산출한 4개 상수(`lower=15.0, upper=1577.0, mean=773.55, std=399.24`; lower/upper = 0.5%/99.5% 분위수, mean/std = clip 후)를 `hu_stats_433.json` 에 저장, `COCAVolumeDataset` 이 런타임에 읽어 `ct_normalization(image, **hu)` 로 전달.
 - 기존 `ct_normalization` 하드코딩 기본값(train 300-case)은 **그대로 두어 단일 hold-out 과 분리**. 모든 fold 가 같은 상수 공유 (fold 별 재산정 안 함). 산출 근거·단일 hold-out 과의 차이(mean 355 vs 773, 심장 게이트 FOV) 상세는 `docs/DATA.md §4·§9`, `CLAUDE.md §6`.
-- validation fold 의 HU 분포가 상수에 미세하게 녹아드는 약한 leakage 는 Methods 에 명시 (§5).
 
 ### 1.6 재현성
 
@@ -90,19 +88,41 @@
 - [x] `test.py`/`tester.py` — 동일 5-fold 인자, `inference()` 가 val fold(`fold{idx}.txt`)를 `COCAVolumeDataset` 으로 로딩. 체크포인트·3D 평가 경로 불변.
 - [x] `aggregate_5fold_results.py` 신규 — 5 fold `results.txt` 의 `[3D]` 라인 + best ckpt/log 를 파싱해 Run Summary + Dice/mIoU/HD (mean±std) Markdown 출력. CLI 는 `--exp_template ...{fold}...`.
 
-### Phase 4 — 파이프라인 검증 (Smoke ✅ / 본 실험 ⏳)
+### Phase 4 — 5-fold 본 실험 (페어별 진행)
 
-> 실행 명령은 `docs/EXPERIMENTS.md §8`(5-fold 워크플로) 가 권위본. 여기엔 상태와 확인된 사실만 남긴다.
+> 실행 명령은 `docs/EXPERIMENTS.md §8`(5-fold 워크플로) 가 권위본. 여기엔 페어별 상태와 게이트 결과만 남긴다.
+>
+> 전체 그리드 = **4 encoder × 2 decoder × 5 fold = 40 trainings (MSFFM `_sa`)** + 동수 baseline (single_slice 브랜치 표준 encoder). PVTv2-b2 비교는 별도 브랜치 페어(`EMCAD-SA` / `EMCAD`). 페어 순서·게이트 위치는 §5.
 
-- [x] **Smoke test (단일 fold) — 종단간 정상.** `--fold_idx 0 --max_epochs 2` 로 경로만 검증. 확인된 것: train 16,685 / val 4,105 fold 분할, best_model 저장·교체, test 4,105 iter → `results.txt` 의 3D 메트릭 생성(2 epoch 라 Dice≈0 정상), `aggregate_5fold_results.py` 가 결과를 Markdown 으로 파싱 (exit 0). smoke 산출물은 점검 후 정리, 덮어쓰인 `*_model_summary.txt` 는 원복.
-- [x] **Early stopping 코드 경로 — smoke 에서 무에러 실행 확인.** 매 epoch best 비교 + 카운터 분기(`patience>0 && counter>=patience` → epoch 루프 break) 정상 실행 (2 epoch 라 실제 break 미발생). 본 실험은 `patience=50` 운용. 필요 시 `--early_stopping_patience 5` 로 강제 break 별도 확인 가능 (미수행).
-- [ ] **본 실험 — main 5-fold 그리드** (⏳ 진행 중, resnet 페어 5-fold 우선). 이 브랜치 실행 가능 = **4 encoder(`resnet50_sa/densenet201_sa/efficientnet-b4_sa/mit_b2_sa`) × 2 decoder(`unet/segformer`) = 8 config**, 각 fold0~4 → **40 trainings**. 이어서 평가 8 config × 5 + config별 `aggregate_5fold_results.py`. 명명·병렬 배치는 `docs/EXPERIMENTS.md §3·§8.2`. baseline(비-MSFFM) 은 별도 `single_slice` 브랜치에서 **페어로 병렬 운영** (현 워크플로: main `_sa` 그리드 ↔ single_slice 표준 encoder 그리드 — encoder 별로 동시에 학습해 MSFFM 기여를 직접 대조). PVTv2-b2 비교는 별도 브랜치 페어(`EMCAD-SA` / `EMCAD`) 에서 5-fold 로 운영한다. 페어 진행 순서: **resnet → EMCAD → densenet → efficientnet → mit** (§6 의존성 그래프). 현재 GPU0 main `resnet50_sa` × unet × fold0~4 + GPU1 single_slice 브랜치 worktree(`/home/psw/SAU-Net-single_slice`) `resnet50` × unet × fold0~4 가 병렬로 진행 중. baseline 산출물(`model/Unet_resnet50/`, `test_log/Unet_resnet50/`)은 평가·집계 후 main 디렉터리로 복사, single_slice worktree 는 `git worktree remove --force` 로 정리 (post 스크립트 자동화).
-- [ ] **Phase 4.4 — MSFFM 작동성 검증 게이트 (resnet 페어 완료 직후, densenet 진행 전 필수).** 현 학습 그리드의 resnet 짝(`resnet50_sa` main / `resnet50` single_slice) 5-fold 학습·평가·집계가 끝난 시점에, densenet 페어 진입 전에 MSFFM 이 의도대로 2.5D 역할을 수행 중인지 확인한다. 학습 그리드 자체와 분리된 진단이므로 별도 exp_setting / fold0 best ckpt 1개로 수행 (현 그리드 산출물 무오염).
+#### Phase 4.1 — resnet 계열 (resnet50_sa main / resnet50 single_slice) ✅ 완료
+
+- [x] **single_slice baseline (A) 5-fold 완료.** `results/baseline_resnet50_unet_seed42.md`. Mean Dice 0.5089±0.1003 (LCA 0 / LAD 0.659±0.330 / LCX 0.748±0.043 / RCA 0.629±0.316). LCA 5/5 fold = 0.0000, fold3 RCA 도 0.0000.
+- [x] **MSFFM main 5-fold 완료.** `results/msffm_resnet50_unet_seed42.md`. Mean Dice 0.5045±0.0790 (LCA 0 / LAD **0.837±0.032** / LCX 0.412±0.339 / RCA **0.769±0.015**). **LAD/RCA 평균↑·std↓ 명확** (MSFFM 이 vessel continuity 안정화). 단 LCX fold3/4 가 0.0000 (baseline 엔 없던 패턴). 평균 mean Dice 는 baseline 과 동등 (LCX 손실이 LAD/RCA 이득 상쇄). baseline 산출물(`model/Unet_resnet50/`, `test_log/Unet_resnet50/`) main 디렉터리 복사 + single_slice worktree `git worktree remove --force` 완료. 명명·병렬 배치 상세는 `docs/EXPERIMENTS.md §3·§8.2`, branch map 은 `CLAUDE.md §10`.
+
+#### Phase 4.2 — MSFFM 작동성 검증 게이트 (resnet 페어 완료 직후, EMCAD 진행 전 필수)
+
+- [ ] 현 학습 그리드의 resnet 짝(`resnet50_sa` main / `resnet50` single_slice) 5-fold 학습·평가·집계가 끝난 시점에, EMCAD 페어 진입 전에 MSFFM 이 의도대로 2.5D 역할을 수행 중인지 확인한다. 학습 그리드 자체와 분리된 진단이므로 별도 exp_setting / fold0 best ckpt 1개로 수행 (현 그리드 산출물 무오염).
   - **DEBUG_RESIDUAL 진단** — `segmentation_models_pytorch/encoders/resnet_sa.py` 의 모듈 상수 `DEBUG_RESIDUAL = True` 로 켜고 fold0 best ckpt 로 짧은 inference 1회 (소수 batch). 출력되는 `Residual branch mean abs value` 로 MSFFM 가 ref feature 를 실질 변형 중인지(≈0 이면 dead branch) 정량 확인. 끝난 뒤 `False` 로 복구 (`CLAUDE.md §6` foot-gun).
   - **Attention 시각화** — `docs/ARCHITECTURE.md §5` 절차: `test.py --save_attention --is_savenii` 로 inference 1회 (fold0 best ckpt). 플래그가 모든 `NonLocalBlock` 에서 `return_attention=True` 자동 토글 + hook 등록 + 시각화 저장을 한 번에 수행. lesion query 가 prev/next 의 어디를 보는지 히트맵을 `test_save_path/attention_vis/` 에서 확인.
   - **채널 ablation (가장 결정적 증거)** — inference 시 input `[prev, ref, next]` 을 `[ref, ref, ref]` / `[zeros, ref, zeros]` / 정상 의 3 setting 으로 비교 (dataset.py `__getitem__` 또는 임시 wrapper 로 1줄 패치). MSFFM 만 ΔDice 큼 → 2.5D 신호 실제 사용 확정. baseline(`single_slice`)은 차이 없어야 정상 (center 만 사용).
   - **Per-class 우위 패턴 확인** — fold0~4 평균에서 vessel continuity 높은 LAD/RCA 에서 MSFFM 우위가 큰지, LCA(짧고 흩어진 클래스)는 우위 작은지 점검. interim test 에서 이미 LAD 에서 MSFFM 강세 패턴 관측됨 — 5-fold 평균으로 결정적 확인.
-  - **통과 기준:** 최소 (DEBUG_RESIDUAL > 0 의미 있는 값) + (채널 ablation 에서 MSFFM ΔDice ≫ baseline ΔDice) 두 가지 충족 → **EMCAD 페어 (`EMCAD-SA` / `EMCAD` 브랜치 5-fold)** 진행 → 이후 densenet 페어 (`densenet201_sa` main / `densenet201` single_slice). 실패 시 그리드 중단하고 MSFFM 구현/통합부터 점검.
+  - **통과 기준:** 최소 (DEBUG_RESIDUAL > 0 의미 있는 값) + (채널 ablation 에서 MSFFM ΔDice ≫ baseline ΔDice) 두 가지 충족 → Phase 4.3 EMCAD 페어 진행. 실패 시 그리드 중단하고 MSFFM 구현/통합부터 점검.
+
+#### Phase 4.3 — EMCAD 계열 (EMCAD-SA / EMCAD 브랜치 페어)
+
+- [ ] pending — Phase 4.2 게이트 통과 후 진행. 별도 브랜치 페어 (PVTv2-b2 backbone). 진행 시 본 항목에 상태/메모 추가.
+
+#### Phase 4.4 — densenet 계열 (densenet201_sa main / densenet201 single_slice)
+
+- [ ] pending — Phase 4.3 후 진행.
+
+#### Phase 4.5 — efficientnet 계열 (efficientnet-b4_sa main / efficientnet-b4 single_slice)
+
+- [ ] pending — Phase 4.4 후 진행.
+
+#### Phase 4.6 — mit 계열 (mit_b2_sa main / mit_b2 single_slice)
+
+- [ ] pending — Phase 4.5 후 진행.
 
 ---
 
@@ -115,7 +135,9 @@
 | `train.py` | argparse 5-fold 인자, fold 명명 경고 | 저장소 내부 |
 | `test.py` / `tester.py` | argparse 5-fold 인자, `inference()` fold 분기 | 저장소 내부 |
 | `trainer.py` | fold 분기 + early stopping | 저장소 내부 |
-| `aggregate_5fold_results.py` | 신규 | 저장소 내부 |
+| `aggregate_5fold_results.py` | 신규 (`--results_dir` 기본 `./results`, gitignored) | 저장소 내부 |
+| `results/*.md` | 산출물 (aggregate MD, gitignored) | 저장소 내부 |
+| `.gitignore` | `results` 추가 | 저장소 내부 |
 | `build_5fold_dataset.py` | 신규, 1회 실행 (rebuild) | `/home/psw/AVS-Diagnosis/COCA/` |
 | `COCA_3frames_5fold/{images,labels}/*.npy` | 산출물, 신규 | `/home/psw/AVS-Diagnosis/COCA/` |
 | `COCA_3frames_5fold/lists_COCA_5fold/`, `hu_stats_433.json`, `case_index.csv` | 산출물, 신규 | 〃 |
@@ -128,18 +150,10 @@
 5-fold 전환 고유의 주의점만 남긴다. 일반 repo 함정(augmentation 분기, DataLoader `shuffle=False`+`collate_fn`, DataParallel, AMP/GradScaler, debug print 잔재)은 `CLAUDE.md §6`·`docs/DATA.md §5~§6`·`docs/EXPERIMENTS.md §5·§7` 가 권위본.
 
 - **case_id 단위 분할 강제:** 슬라이스 단위 stratify 는 인접 슬라이스 누수로 2.5D 가정이 깨진다. fold 리스트 생성기는 반드시 case → fold → slice 순서로 동작해야 함.
-- **모델 선택 optimism 명시:** val 셋이 best epoch 선택과 최종 보고를 동시에 수행함을 Methods 에 한 줄로 적기.
-- **HU 정규화 누수 명시:** 정규화 상수가 전체 433 case 분포에서 산출됨을 솔직히 기술.
 
 ---
 
-## 5. 원고 보고 문구 (Methods 에 삽입할 초안)
-
-> "We pooled the original training (n=300) and test (n=133) sets into a single cohort of 433 cases and applied a 5-fold stratified cross-validation at the case level. Stratification used the multi-hot vector of vessel presence (LCA/LAD/LCX/RCA) as the label, with `MultilabelStratifiedKFold` (random_state=42). For each fold k, models were trained on the remaining four folds (4:1 train-to-validation ratio) with model selection (lowest validation loss) and early stopping (patience=50 epochs). HU intensity normalization statistics (lower/upper clipping bounds, mean, standard deviation) were computed once on the entire 433-case pool prior to the CV split. The validation fold served as both the model selection criterion and the final performance evaluation set; final metrics are reported as mean ± standard deviation across the five folds."
-
----
-
-## 6. 진행 순서 (의존성 그래프)
+## 5. 진행 순서 (의존성 그래프)
 
 ```
 Phase 1 (검증)  ✅ case_id 충돌 발견 → 전역 인덱스 rebuild 로 전환
@@ -152,15 +166,19 @@ Phase 3  코드 수정  ✅
    │   └─ datasets/__init__.py(버그수정) · COCAVolumeDataset · train/test/trainer fold 분기
    │      · early stopping · aggregate_5fold_results.py
    ▼
-Phase 4.1  Smoke test (fold0, 2 epoch)  ✅ 종단간 검증 완료 (산출물 정리됨)
-   │
-   └──► Phase 4.3  본 실험 main 8-config × 5 (40 trainings)  →  aggregate_5fold_results.py
-        ⏳ 진행 중: resnet 페어 (resnet_sa main / resnet single_slice) 5-fold 학습+평가+집계
-           │
-           └──► Phase 4.4  MSFFM 작동성 검증 게이트
-                  (DEBUG_RESIDUAL · attention vis · 채널 ablation · per-class)
-                  │
-                  ├─ 통과 → EMCAD 페어 (EMCAD-SA/EMCAD 브랜치) → densenet 페어 → efficientnet 페어 → mit 페어
-                  └─ 실패 → 그리드 중단, MSFFM 구현/통합 점검 후 재개
+Phase 4.1  resnet 페어 (resnet50_sa main / resnet50 single_slice)  ✅
+   ▼
+Phase 4.2  MSFFM 작동성 검증 게이트
+   │     (DEBUG_RESIDUAL · attention vis · 채널 ablation · per-class)
+   │     ├─ 통과 → Phase 4.3
+   │     └─ 실패 → 그리드 중단, MSFFM 구현/통합 점검 후 재개
+   ▼
+Phase 4.3  EMCAD 페어 (EMCAD-SA / EMCAD 브랜치)
+   ▼
+Phase 4.4  densenet 페어 (densenet201_sa / densenet201)
+   ▼
+Phase 4.5  efficientnet 페어 (efficientnet-b4_sa / efficientnet-b4)
+   ▼
+Phase 4.6  mit 페어 (mit_b2_sa / mit_b2)
 ```
 
