@@ -7,7 +7,7 @@ fold 별 값 + mean±std 를 Markdown 표로 출력한다.
 
 예 (EMCAD-SA):
   python aggregate_5fold_results.py \
-      --exp_template review_5fold_emcad_sa_fold{fold}_seed42 \
+      --exp_template emcad_sa_fold{fold}_seed42 \
       --encoder pvt_v2_b2 --netclass EMCAD_SA_Net
 """
 import os
@@ -116,7 +116,10 @@ def main():
     ap.add_argument("--base_lr", type=float, default=0.00001)
     ap.add_argument("--test_log_root", default="./test_log")
     ap.add_argument("--model_root", default="./model")
-    ap.add_argument("--out", default=None)
+    ap.add_argument("--results_dir", default="./results",
+                    help="aggregate MD 출력 디렉터리 (gitignored)")
+    ap.add_argument("--out", default=None,
+                    help="명시 시 results_dir 무시")
     args = ap.parse_args()
 
     netcls = args.netclass or NETCLASS[args.decoder]
@@ -152,7 +155,8 @@ def main():
 
     md = "\n".join(parts)
     print(md)
-    out = args.out or f"aggregate_5fold_{title}.md"
+    out = args.out or os.path.join(args.results_dir, f"{title}.md")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with open(out, "w") as fp:
         fp.write(md + "\n")
     print(f"\n[saved] {out}")
