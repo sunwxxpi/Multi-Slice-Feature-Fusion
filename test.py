@@ -23,6 +23,7 @@ parser.add_argument('--exp_setting', type=str,  default='default', help='descrip
 parser.add_argument('--deterministic', type=int, default=1, help='whether use deterministic training')
 parser.add_argument('--seed', type=int, default=42, help='random seed')
 parser.add_argument('--is_savenii', action="store_true", help='whether to save results during inference')
+parser.add_argument('--save_attention', action="store_true", help='enable attention visualization saving')
 parser.add_argument('--z_spacing', type=int, default=3, help='z spacing of the volume')
 # 5-fold CV 옵션 (기본 비활성, 단일 hold-out 경로와 하위 호환)
 parser.add_argument('--use_5fold_cv', action="store_true", help='use 433-case stratified 5-fold CV')
@@ -101,14 +102,21 @@ if __name__ == "__main__":
     else:
         test_save_path = None
 
-    # Attention 시각화 hook (기본 비활성). fused SDPA 경로는 attention_weights=None 을 반환하므로
-    # 시각화하려면 대상 NonLocalBlock 의 return_attention=True 로 켠 뒤 아래 등록과
-    # tester.py 의 visualize_attention 호출을 함께 활성화할 것.
-    # net.backbone.cross_attention_prev_3.register_forward_hook(get_attn_hook("stage3_prev"))
-    # net.backbone.cross_attention_self_3.register_forward_hook(get_attn_hook("stage3_self"))
-    # net.backbone.cross_attention_next_3.register_forward_hook(get_attn_hook("stage3_next"))
-    # net.backbone.cross_attention_prev_4.register_forward_hook(get_attn_hook("stage4_prev"))
-    # net.backbone.cross_attention_self_4.register_forward_hook(get_attn_hook("stage4_self"))
-    # net.backbone.cross_attention_next_4.register_forward_hook(get_attn_hook("stage4_next"))
-        
+    # --save_attention 시 NonLocalBlock 자동 검색 → return_attention=True 토글 + hook 등록.
+    # EMCAD-SA 의 NonLocalBlock 은 net.backbone 아래(cross_attention_*_{3,4}) 에 있으므로
+    # net 전체를 순회해 `return_attention` 속성 보유 모듈을 모두 잡는다.
+    # hook 키는 visualize_attention 이 기대하는 stage{N}_{prev|self|next} 형식으로 변환한다
+    # (모듈명 backbone.cross_attention_prev_3 → stage3_prev). 패턴 불일치 시 모듈명을 그대로 쓴다.
+    if args.save_attention:
+        import re
+        hook_count = 0
+        for module_name, module in net.named_modules():
+            if hasattr(module, 'return_attention'):
+                module.return_attention = True
+                m = re.search(r'(prev|self|next).*?(\d+)$', module_name)
+                attn_key = f"stage{m.group(2)}_{m.group(1)}" if m else module_name
+                module.register_forward_hook(get_attn_hook(attn_key))
+                hook_count += 1
+        print(f"Registered attention hooks on {hook_count} NonLocalBlock(s).")
+
     inference(args, net, test_save_path)
