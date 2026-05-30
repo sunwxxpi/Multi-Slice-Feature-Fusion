@@ -99,14 +99,14 @@
 - [x] **single_slice baseline (A) 5-fold 완료.** `results/baseline_resnet50_unet_seed42.md`. Mean Dice 0.5089±0.1003 (LCA 0 / LAD 0.659±0.330 / LCX 0.748±0.043 / RCA 0.629±0.316). LCA 5/5 fold = 0.0000, fold3 RCA 도 0.0000.
 - [x] **MSFFM main 5-fold 완료.** `results/msffm_resnet50_unet_seed42.md`. Mean Dice 0.5045±0.0790 (LCA 0 / LAD **0.837±0.032** / LCX 0.412±0.339 / RCA **0.769±0.015**). **LAD/RCA 평균↑·std↓ 명확** (MSFFM 이 vessel continuity 안정화). 단 LCX fold3/4 가 0.0000 (baseline 엔 없던 패턴). 평균 mean Dice 는 baseline 과 동등 (LCX 손실이 LAD/RCA 이득 상쇄). baseline 산출물(`model/Unet_resnet50/`, `test_log/Unet_resnet50/`) main 디렉터리 복사 + single_slice worktree `git worktree remove --force` 완료. 명명·병렬 배치 상세는 `docs/EXPERIMENTS.md §3·§8.2`, branch map 은 `CLAUDE.md §10`.
 
-#### Phase 4.2 — MSFFM 작동성 검증 게이트 (resnet 페어 완료 직후, EMCAD 진행 전 필수)
+#### Phase 4.2 — MSFFM 작동성 검증 게이트 ✅ 완료
 
-- [ ] 현 학습 그리드의 resnet 짝(`resnet50_sa` main / `resnet50` single_slice) 5-fold 학습·평가·집계가 끝난 시점에, EMCAD 페어 진입 전에 MSFFM 이 의도대로 2.5D 역할을 수행 중인지 확인한다. 학습 그리드 자체와 분리된 진단이므로 별도 exp_setting / fold0 best ckpt 1개로 수행 (현 그리드 산출물 무오염).
-  - **DEBUG_RESIDUAL 진단** — `segmentation_models_pytorch/encoders/resnet_sa.py` 의 모듈 상수 `DEBUG_RESIDUAL = True` 로 켜고 fold0 best ckpt 로 짧은 inference 1회 (소수 batch). 출력되는 `Residual branch mean abs value` 로 MSFFM 가 ref feature 를 실질 변형 중인지(≈0 이면 dead branch) 정량 확인. 끝난 뒤 `False` 로 복구 (`CLAUDE.md §6` foot-gun).
-  - **Attention 시각화** — `docs/ARCHITECTURE.md §5` 절차: `test.py --save_attention --is_savenii` 로 inference 1회 (fold0 best ckpt). 플래그가 모든 `NonLocalBlock` 에서 `return_attention=True` 자동 토글 + hook 등록 + 시각화 저장을 한 번에 수행. lesion query 가 prev/next 의 어디를 보는지 히트맵을 `test_save_path/attention_vis/` 에서 확인.
-  - **채널 ablation (가장 결정적 증거)** — inference 시 input `[prev, ref, next]` 을 `[ref, ref, ref]` / `[zeros, ref, zeros]` / 정상 의 3 setting 으로 비교 (dataset.py `__getitem__` 또는 임시 wrapper 로 1줄 패치). MSFFM 만 ΔDice 큼 → 2.5D 신호 실제 사용 확정. baseline(`single_slice`)은 차이 없어야 정상 (center 만 사용).
-  - **Per-class 우위 패턴 확인** — fold0~4 평균에서 vessel continuity 높은 LAD/RCA 에서 MSFFM 우위가 큰지, LCA(짧고 흩어진 클래스)는 우위 작은지 점검. interim test 에서 이미 LAD 에서 MSFFM 강세 패턴 관측됨 — 5-fold 평균으로 결정적 확인.
-  - **통과 기준:** 최소 (DEBUG_RESIDUAL > 0 의미 있는 값) + (채널 ablation 에서 MSFFM ΔDice ≫ baseline ΔDice) 두 가지 충족 → Phase 4.3 EMCAD 페어 진행. 실패 시 그리드 중단하고 MSFFM 구현/통합부터 점검.
+- [x] resnet 페어 5-fold 종료 후 EMCAD 진입 전, MSFFM 이 2.5D 역할을 실제 수행하는지 그리드와 분리해 검증. `resnet50_sa`+Unet fold0 best(`epoch_104_0.0505`) 1개로만 진단 (`results.txt`/`model` 무접근, `normal` 모드 3D Dice 가 `results/msffm_resnet50_unet_seed42.md` fold0 과 일치 → 파이프라인 무결성 확인). 4종 증거:
+  - **(1) Residual (DEBUG_RESIDUAL)** — ‖xt‖/‖x_main‖ stage3 0.2366·stage4 0.0538 → dead branch 아님. 진단 후 `resnet_sa.py` `DEBUG_RESIDUAL=False` 복구 (`CLAUDE.md §6`).
+  - **(2) 채널 ablation (결정적)** — `zero_neighbors[0,ref,0]` 시 ΔLAD −0.0669(ΔMean −0.0081), `ref_only`≈0. baseline(single_slice)은 center 만 써 구조상 ΔDice≡0 → MSFFM ΔDice ≫ baseline.
+  - **(3) per-class** — 5-fold 평균 LAD(+0.178)·RCA(+0.140) 압승(연속 혈관), LCA(짧고 흩어짐)는 우위 작음 — 예측 패턴 부합.
+  - **(4) attention viz** — `test.py --save_attention` hook 키 버그(90f33a4 회귀: 모듈명 `cross_attention_*_N` 이 `visualize_attention` 기대 키 `stageN_*` 와 불일치) 수정 후 lesion query→prev/self/next attend 정상 확인. `test.py`/`tester.py` 패치 상세(키 정규화·uniform-대비 colorbar·표시 회전)는 `docs/ARCHITECTURE.md §5`.
+- **판정:** 하드기준 (1)+(2) 충족 → PASS (inter-slice 의존은 modest·LAD 집중형).
 
 #### Phase 4.3 — EMCAD 계열 (EMCAD-SA / EMCAD 브랜치 페어)
 
@@ -157,7 +157,6 @@
 
 ```
 Phase 1 (검증)  ✅ case_id 충돌 발견 → 전역 인덱스 rebuild 로 전환
-   │
    ▼
 Phase 2  build_5fold_dataset.py  ✅
    │   └─ COCA_3frames_5fold/{images,labels}/*.npy + lists_COCA_5fold/ + hu_stats_433.json
@@ -168,10 +167,8 @@ Phase 3  코드 수정  ✅
    ▼
 Phase 4.1  resnet 페어 (resnet50_sa main / resnet50 single_slice)  ✅
    ▼
-Phase 4.2  MSFFM 작동성 검증 게이트
-   │     (DEBUG_RESIDUAL · attention vis · 채널 ablation · per-class)
-   │     ├─ 통과 → Phase 4.3
-   │     └─ 실패 → 그리드 중단, MSFFM 구현/통합 점검 후 재개
+Phase 4.2  MSFFM 작동성 검증 게이트  ✅
+   │     └─ (DEBUG_RESIDUAL · attention vis · 채널 ablation · per-class)
    ▼
 Phase 4.3  EMCAD 페어 (EMCAD-SA / EMCAD 브랜치)
    ▼

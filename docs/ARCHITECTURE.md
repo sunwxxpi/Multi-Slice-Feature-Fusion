@@ -97,7 +97,7 @@ train.py: smp.Unet(encoder_name="resnet50_sa", ...)
 - **사용법: `test.py --save_attention` 단일 플래그.** `test.py` 가 자동으로
   1. `net.encoder.named_modules()` 순회 → `return_attention` 속성 보유 모듈(모든 `NonLocalBlock`) 자동 검색
   2. 각 모듈의 `return_attention=True` 토글
-  3. `get_attn_hook(module_name)` 등록
+  3. 모듈명(`cross_attention_prev_3` 등)을 `visualize_attention` 이 기대하는 키 `stage{N}_{prev|self|next}` 로 정규화한 뒤 hook 등록.
   를 수행. 백본 무관 동작 (resnet50_sa / densenet201_sa / efficientnet-b4_sa / mit_b2_sa 공통).
 - `tester.py:inference` 는 `args.save_attention` 가 True 일 때만 `visualize_attention(...)` 호출 + `attn_vis_dir` mkdir 수행. OFF 시 빈 디렉터리 생성도 없음.
 - 저장 위치: `test_save_path/attention_vis/` (= `--is_savenii` 켜진 경우) 또는 fallback `./test_log/attention_vis_fallback/{exp_setting}/` (exp_setting 포함하여 run 간 섞임 방지).
@@ -105,6 +105,8 @@ train.py: smp.Unet(encoder_name="resnet50_sa", ...)
 - 수치 안정: 명시 attention 경로는 autocast(fp16) 안이라도 Q/K 를 fp32 로 cast 후 softmax — overflow/underflow 방지.
 - query 픽셀은 ground-truth lesion 의 평균 좌표로 자동 선정. GT 없으면 해당 슬라이스 skip.
 - NonLocalBlock 의 attention head 는 8 (논문 명시값) — 의미 있는 시각화에 충분.
+- **히트맵 스케일 = uniform 대비 배수** (`attn × N`, 1.0 = 무선호). 이전 per-panel min-max 정규화는 거의 균일한 분포도 풀스케일 jet 로 칠해 가짜 핫스팟을 만들었다. 6 패널이 공통 `vmin=0 / vmax=max(5, per-panel peak 의 median)` 으로 그려져 강도 직접 비교가 가능하고, 제목의 `attn@box`(query 가 자기 lesion 위치를 보는 배수)·`peak`(어디든 최대 집중 배수)로 정량 비교한다.
+- 표시 방향은 `VIS_ROT90_CCW`(기본 1, CCW 90°)로 회전 — COCA axial 의 누운 cardiac FOV 를 척추 아래 표준 방향으로 맞춘다. 이미지·박스·query 좌표를 `_rot90_cell` 로 동일 회전하므로 정렬이 유지된다 (0 으로 두면 원본 array 방향).
 
 ## 6. 결과물 형식
 

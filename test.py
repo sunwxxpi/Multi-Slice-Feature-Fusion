@@ -103,12 +103,17 @@ if __name__ == "__main__":
 
     # --save_attention 시 NonLocalBlock 자동 검색 → return_attention=True 토글 + hook 등록.
     # 백본별 attribute 명 다른 문제 (densenet/efficientnet/mit) 회피 — `return_attention` 속성 보유 모듈을 모두 잡는다.
+    # hook 키는 visualize_attention 이 기대하는 stage{N}_{prev|self|next} 형식으로 변환한다
+    # (모듈명 cross_attention_prev_3 → stage3_prev). 패턴 불일치 시 모듈명을 그대로 쓴다.
     if args.save_attention and hasattr(net, 'encoder'):
+        import re
         hook_count = 0
         for module_name, module in net.encoder.named_modules():
             if hasattr(module, 'return_attention'):
                 module.return_attention = True
-                module.register_forward_hook(get_attn_hook(module_name))
+                m = re.search(r'(prev|self|next).*?(\d+)$', module_name)
+                attn_key = f"stage{m.group(2)}_{m.group(1)}" if m else module_name
+                module.register_forward_hook(get_attn_hook(attn_key))
                 hook_count += 1
         print(f"Registered attention hooks on {hook_count} NonLocalBlock(s).")
 
