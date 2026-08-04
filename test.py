@@ -12,8 +12,8 @@ from tester import inference, get_attn_hook
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='COCA', help='dataset name')
-parser.add_argument('--root_path', type=str, default='/home/psw/SAU-Net/data/COCA/COCA_3frames/test_npz', help='root dir for validation volume data')
-parser.add_argument('--list_dir', type=str, default='/home/psw/SAU-Net/data/COCA/COCA_3frames/lists_COCA', help='list dir')
+parser.add_argument('--root_path', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/test_npz', help='root dir for validation volume data')
+parser.add_argument('--list_dir', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/lists_COCA', help='list dir')
 parser.add_argument('--num_classes', type=int, default=5, help='output channel of network')
 parser.add_argument('--max_epochs', type=int, default=300, help='maximum epoch number to train')
 parser.add_argument('--batch_size', type=int, default=16, help='batch_size per gpu')
@@ -28,9 +28,9 @@ parser.add_argument('--z_spacing', type=int, default=3, help='z spacing of the v
 # 5-fold CV 옵션 (기본 비활성, 단일 hold-out 경로와 하위 호환)
 parser.add_argument('--use_5fold_cv', action="store_true", help='use 433-case stratified 5-fold CV')
 parser.add_argument('--fold_idx', type=int, default=0, help='validation fold index (0..4) = 평가 셋')
-parser.add_argument('--root_path_5fold', type=str, default='/home/psw/SAU-Net/data/COCA/COCA_3frames_5fold', help='5-fold per-case volume root (images/, labels/)')
-parser.add_argument('--list_dir_5fold', type=str, default='/home/psw/SAU-Net/data/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold list dir (fold0.txt..fold4.txt)')
-parser.add_argument('--hu_stats_path', type=str, default='/home/psw/SAU-Net/data/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU normalization stats json')
+parser.add_argument('--root_path_5fold', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold', help='5-fold per-case volume root (images/, labels/)')
+parser.add_argument('--list_dir_5fold', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold list dir (fold0.txt..fold4.txt)')
+parser.add_argument('--hu_stats_path', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU normalization stats json')
 
 # network related parameters
 parser.add_argument('--encoder', type=str,
