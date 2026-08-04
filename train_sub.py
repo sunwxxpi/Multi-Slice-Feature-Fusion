@@ -9,7 +9,7 @@ from trainer import trainer_coca
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--root_path', type=str,
-                    default='../data/COCA/train_npz', help='root dir for data')
+                    default='../data/datasets/COCA/train_npz', help='root dir for data')
 parser.add_argument('--dataset', type=str,
                     default='COCA', help='experiment_name')
 parser.add_argument('--list_dir', type=str,
@@ -46,8 +46,8 @@ if __name__ == "__main__":
     dataset_name = args.dataset
     dataset_config = {
         'COCA': {
-            'root_path': '/home/psw/SAU-Net/data/COCA_3frames/train_npz',
-            'list_dir': '/home/psw/SAU-Net/data/COCA_3frames/lists_COCA',
+            'root_path': '/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/train_npz',
+            'list_dir': '/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/lists_COCA',
             'num_classes': 5,
             'max_epochs': 300,
             'batch_size': 16,
