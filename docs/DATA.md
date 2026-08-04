@@ -13,7 +13,7 @@
 데이터셋 루트는 본 코드 저장소 **밖** 에 있다.
 
 ```
-/home/psw/SAU-Net/data/COCA/                    ← 데이터셋 루트 (사용자 로컬)
+/home/psw/SAU-Net/data/datasets/COCA/                    ← 데이터셋 루트 (사용자 로컬)
 ├── COCA_3frames/                                ← single hold-out 용 (기존, 그대로 보존)
 │   ├── train_npz/<sample_name>.npz              ← (H, W, 3) image + (H, W) label
 │   ├── test_npz/<sample_name>.npz
@@ -42,9 +42,9 @@
 ```
 
 `train.py` / `test.py` argparse 기본값:
-- `root_path = /home/psw/SAU-Net/data/COCA/COCA_3frames/train_npz` (학습)
-- `root_path = /home/psw/SAU-Net/data/COCA/COCA_3frames/test_npz`  (평가)
-- `list_dir  = /home/psw/SAU-Net/data/COCA/COCA_3frames/lists_COCA`
+- `root_path = /home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/train_npz` (학습)
+- `root_path = /home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/test_npz`  (평가)
+- `list_dir  = /home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/lists_COCA`
 
 다른 환경에서 실행할 때는 반드시 `--root_path` / `--list_dir` 를 지정. `train.txt` 는 학습/검증을 80:20 으로 분할 (`sklearn.model_selection.train_test_split`, `shuffle=False`, seed 42).
 
