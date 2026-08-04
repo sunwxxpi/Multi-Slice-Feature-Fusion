@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms as T
 from scipy.ndimage import zoom
 from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric, SurfaceDistanceMetric
-from datasets.dataset import COCA_dataset, COCAVolumeDataset, load_hu_stats, Resize, ToTensor
+from dataset import COCA_dataset, COCAVolumeDataset, load_hu_stats, Resize, ToTensor
 
 def process_slice(slice_2d, model, patch_size):
     x, y = slice_2d.shape
