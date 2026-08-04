@@ -12,7 +12,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 from tqdm import tqdm
 from utils import PolyLRScheduler, CosineAnnealingWarmupRestarts, DiceLoss, LocalSampleLoss
-from datasets.dataset import (shuffle_within_batch, COCA_dataset, COCAVolumeDataset,
+from dataset import (shuffle_within_batch, COCA_dataset, COCAVolumeDataset,
                               load_hu_stats, RandomAugmentation, Resize, ToTensor)
 
 def _read_fold_list(list_dir, k):
