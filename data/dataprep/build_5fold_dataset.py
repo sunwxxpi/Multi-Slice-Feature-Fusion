@@ -20,8 +20,8 @@ import nibabel as nib
 from tqdm import tqdm
 from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
 
-SRC = "/home/psw/SAU-Net/data/COCA/Dataset001_COCA"
-OUT = "/home/psw/SAU-Net/data/COCA/COCA_3frames_5fold"
+SRC = "/home/psw/SAU-Net/data/datasets/COCA/Dataset001_COCA"
+OUT = "/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold"
 SPLITS = [
     ("train", "imagesTr", "labelsTr"),
     ("test", "imagesVal", "labelsVal"),
