@@ -10,10 +10,10 @@
 
 ## 2. 본 저장소가 기대하는 디스크 구조
 
-데이터셋 루트는 본 코드 저장소 **밖** 에 있다.
+데이터셋 루트는 저장소 안 `data/datasets/COCA/` 이고, `.gitignore` 로 git 추적에서만 빠진다. 전처리 스크립트는 git 으로 추적되는 `data/dataprep/` 에 따로 있다.
 
 ```
-/home/psw/SAU-Net/data/datasets/COCA/                    ← 데이터셋 루트 (사용자 로컬)
+data/datasets/COCA/                              ← 데이터셋 루트 (git 제외)
 ├── COCA_3frames/                                ← single hold-out 용 (기존, 그대로 보존)
 │   ├── train_npz/<sample_name>.npz              ← (H, W, 3) image + (H, W) label
 │   ├── test_npz/<sample_name>.npz
@@ -30,16 +30,20 @@
 │   └── case_index.csv                           ← case_id ↔ 원본 nnUNet 파일명, depth, n_samples
 ├── COCA_1frame/                                 ← 단일 슬라이스 변형 (참고용, 본 코드 미사용)
 │   ├── train_npz/, test_vol_h5/, lists_COCA/
-├── Dataset001_COCA/                             ← nnUNet 포맷 원본 (COCA_3frames* 의 출처)
-│   ├── imagesTr/, imagesVal/, labelsTr/, labelsVal/, dataset.json
-└── *.py                                         ← 전처리/조직화 스크립트
-    ├── preprocess_train_test_data_3frames.py    ← COCA_3frames 생성 스크립트
-    ├── preprocess_train_test_data_1frame.py
-    ├── organize_dataset.py / organize_nnUNet_format.py
-    ├── xml_to_nii_label.py / xml_to_png_label.py
-    ├── add_tag_value_to_dcm.py / analysis_dcm_metadata.py
-    └── build_5fold_dataset.py                   ← COCA_3frames_5fold 전체 1회 생성 (rebuild)
+└── Dataset001_COCA/                             ← nnUNet 포맷 원본 (COCA_3frames* 의 출처)
+    ├── imagesTr/, imagesVal/, labelsTr/, labelsVal/, dataset.json
+
+data/dataprep/                                   ← 전처리/조직화 스크립트 (git 추적)
+├── README.md / coca_data_error.txt
+├── preprocess_train_test_data_3frames.py        ← COCA_3frames 생성 스크립트
+├── preprocess_train_test_data_1frame.py
+├── organize_dataset.py / organize_nnUNet_format.py
+├── xml_to_nii_label.py / xml_to_png_label.py
+├── add_tag_value_to_dcm.py / analysis_dcm_metadata.py
+└── build_5fold_dataset.py                       ← COCA_3frames_5fold 전체 1회 생성 (rebuild)
 ```
+
+`build_5fold_dataset.py` 만 절대경로를 쓰고 나머지는 전부 상대경로라 실행 위치가 결과를 바꾼다 — [`data/dataprep/README.md`](../data/dataprep/README.md) 참조.
 
 `train.py` / `test.py` argparse 기본값:
 - `root_path = /home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/train_npz` (학습)
@@ -48,7 +52,7 @@
 
 다른 환경에서 실행할 때는 반드시 `--root_path` / `--list_dir` 를 지정. `train.txt` 는 학습/검증을 80:20 으로 분할 (`sklearn.model_selection.train_test_split`, `shuffle=False`, seed 42).
 
-NPZ 가 손상되거나 새 코호트가 들어왔다면 `preprocess_train_test_data_3frames.py` 가 원본 DICOM/XML 로부터 `(H, W, 3)` 슬라이스 묶음과 list 파일을 재생성하는 정식 경로다 — 단, 해당 스크립트는 본 저장소가 아니라 위 데이터셋 루트에 함께 있는 사용자 로컬 자산이다.
+NPZ 가 손상되거나 새 코호트가 들어왔다면 `preprocess_train_test_data_3frames.py` 가 원본 DICOM/XML 로부터 `(H, W, 3)` 슬라이스 묶음과 list 파일을 재생성하는 정식 경로다 — 단, 원본 DICOM/XML 트리(`COCA/COCA_final`, `COCA/Gated_release_final`)는 디스크에 없다.
 
 ## 3. NPZ 파일 포맷
 

@@ -35,7 +35,7 @@ SAU-Net/
 - Conda env: `SAU-Net` (`/home/psw/anaconda3/envs/SAU-Net/bin/python3`)
 - 주요 의존성: PyTorch + `segmentation_models_pytorch`(in-tree fork) + `monai` + `SimpleITK`
 - 학습/평가 명령 예시(single hold-out + 5-fold)는 `docs/EXPERIMENTS.md §1~§2`. train/test 의 `--exp_setting` 이 동일해야 체크포인트 경로가 매칭된다 (§5). GPU 는 실행마다 `CUDA_VISIBLE_DEVICES` 로 1개 핀 (§6).
-- **데이터셋 루트:** `/home/psw/SAU-Net/data/datasets/COCA/` (본 저장소 외부, 사용자 로컬 절대경로 → 다른 PC 로 옮기면 깨지므로 `--root_path`/`--list_dir` 로 덮어쓸 것). single hold-out 은 `COCA_3frames/{train_npz,test_npz,lists_COCA}` 사용. 경로 구조 상세는 `docs/DATA.md §2`.
+- **데이터셋 루트:** `data/datasets/COCA/` (저장소 안이지만 `.gitignore` 로 git 밖. argparse 기본값은 `/home/psw/...` 절대경로라 다른 PC 로 옮기면 깨지므로 `--root_path`/`--list_dir` 로 덮어쓸 것). single hold-out 은 `COCA_3frames/{train_npz,test_npz,lists_COCA}` 사용. 경로 구조 상세는 `docs/DATA.md §2`.
 - **5-fold CV 자산:** `--use_5fold_cv` 사용 시 별도 디렉터리 `COCA_3frames_5fold/` 를 쓴다 (`--root_path`/`--list_dir` 무시, 대신 `--root_path_5fold`/`--list_dir_5fold`/`--hu_stats_path` — 모두 기본값 박힘). `build_5fold_dataset.py` 가 `Dataset001_COCA` 원본에서 1회 생성 (rebuild 이유·포맷·배경은 `docs/DATA.md §9`, `TODO.md §1~§2`).
 
 ## 4. 핵심 컨벤션
@@ -90,7 +90,7 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 2. 코드 수정 시 한국어 주석 유지(전역 규칙). 영어 식별자/타입은 그대로 둘 것.
 3. 학습 → 평가의 경로 규약(§5) 을 깨지 않는 한 가장 작은 변경을 적용.
 4. 디버그 `print` 가 시끄럽다고 일괄 제거하지 말 것 — `residual ratio` 출력은 의도된 instrumentation 가능성이 있다 (§6).
-5. `model/`, `test_log/`, `data/` 는 `.gitignore` 대상이므로 결과물을 커밋하지 않는다.
+5. `model/`, `test_log/`, `data/datasets/` 는 `.gitignore` 대상이므로 결과물을 커밋하지 않는다. `data/dataprep/` 은 추적 대상이니 주의 — `data/` 통째로 무시된다고 가정하면 안 된다.
 
 ## 9. 추가 문서
 
