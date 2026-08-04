@@ -243,8 +243,8 @@ if __name__ == "__main__":
     dataset_name = args.dataset
     dataset_config = {
         'COCA': {
-            'volume_path': '/home/psw/AVS-Diagnosis/COCA_3frames/test_npz',
-            'list_dir': '/home/psw/AVS-Diagnosis/COCA_3frames/lists_COCA',
+            'volume_path': '/home/psw/SAU-Net/data/COCA_3frames/test_npz',
+            'list_dir': '/home/psw/SAU-Net/data/COCA_3frames/lists_COCA',
             'num_classes': 5,
             'max_epochs': 300,
             'batch_size': 16,
