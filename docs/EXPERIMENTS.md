@@ -147,7 +147,7 @@ Overall 3D Metrics Across All Cases:
 
 ### 8.1 실행 순서 정책
 
-1. **Phase 1~3 완료 확인** — `COCA_3frames_5fold/`(images/labels/lists/hu_stats) 산출 + 코드 수정(`--use_5fold_cv` 분기, `datasets/__init__.py`) 모두 끝나 있어야 함 (`TODO.md` §2~§3).
+1. **Phase 1~3 완료 확인** — `COCA_3frames_5fold/`(images/labels/lists/hu_stats) 산출 + 코드 수정(`--use_5fold_cv` 분기, `dataset.py` 의 5-fold 로더) 모두 끝나 있어야 함 (`TODO.md` §2~§3).
 2. **Smoke test** — `--fold_idx 0 --max_epochs 2 --early_stopping_patience 0` 로 짧게 1회 학습+평가가 종단간 도는지 확인 (체크포인트 저장 + `results.txt` 생성).
 3. **Main 5-fold 그리드** — 8 config(4 enc × 2 dec) × fold0~4 = 40 trainings → 평가 40 → config별 `aggregate_5fold_results.py`. 두 GPU 에 4 config 씩 나눠 병렬(§8.2).
 
