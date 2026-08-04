@@ -25,6 +25,9 @@ SAU-Net/
 │       ├── mix_transformer_sa.py           # MiT-b2 + MSFFM
 │       └── resnet.py / densenet.py / ...   # 각 백본의 registry 에 *_sa 등록됨
 ├── networks/{emcad,fcbformer}/   # __pycache__ 만 남음 (소스 미커밋 상태)
+├── data/
+│   ├── datasets/COCA/            # COCA 데이터셋 실체 (gitignored)
+│   └── dataprep/                 # 데이터셋 구축 스크립트 (git 추적)
 ├── model/                        # 학습 체크포인트 (gitignored)
 ├── test_log/                     # 평가 결과·NIfTI·attention vis (gitignored)
 └── docs/                         # 본 문서를 포함한 추가 가이드

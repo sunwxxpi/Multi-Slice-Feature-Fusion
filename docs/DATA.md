@@ -29,9 +29,9 @@ data/datasets/COCA/                              ← 데이터셋 루트 (git �
 │   ├── hu_stats_433.json                        ← 433-case 정규화 상수 (lower/upper/mean/std)
 │   └── case_index.csv                           ← case_id ↔ 원본 nnUNet 파일명, depth, n_samples
 ├── COCA_1frame/                                 ← 단일 슬라이스 변형 (참고용, 본 코드 미사용)
-│   ├── train_npz/, test_vol_h5/, lists_COCA/
+│   └── train_npz/, test_vol_h5/, lists_COCA/
 └── Dataset001_COCA/                             ← nnUNet 포맷 원본 (COCA_3frames* 의 출처)
-    ├── imagesTr/, imagesVal/, labelsTr/, labelsVal/, dataset.json
+    └── imagesTr/, imagesVal/, labelsTr/, labelsVal/, dataset.json
 
 data/dataprep/                                   ← 전처리/조직화 스크립트 (git 추적)
 ├── README.md / coca_data_error.txt
@@ -52,7 +52,8 @@ data/dataprep/                                   ← 전처리/조직화 스크�
 
 다른 환경에서 실행할 때는 반드시 `--root_path` / `--list_dir` 를 지정. `train.txt` 는 학습/검증을 80:20 으로 분할 (`sklearn.model_selection.train_test_split`, `shuffle=False`, seed 42).
 
-NPZ 가 손상되거나 새 코호트가 들어왔다면 `preprocess_train_test_data_3frames.py` 가 원본 DICOM/XML 로부터 `(H, W, 3)` 슬라이스 묶음과 list 파일을 재생성하는 정식 경로다 — 단, 원본 DICOM/XML 트리(`COCA/COCA_final`, `COCA/Gated_release_final`)는 디스크에 없다.
+NPZ 가 손상되면 `data/dataprep/preprocess_train_test_data_3frames.py` 가 `Dataset001_COCA` 의 nnUNet `.nii.gz` 로부터 `(H, W, 3)` 슬라이스 묶음과 list 파일을 재생성한다. `Dataset001_COCA` 가 저장소에 있으므로 이 경로는 지금도 쓸 수 있다.
+새 코호트가 DICOM/XML 로 들어오는 경우는 다르다 — 그 앞단 스크립트가 읽는 원본 트리(`COCA/COCA_final`, `COCA/Gated_release_final`)는 이 저장소로 옮겨오지 않아 디스크에 없다.
 
 ## 3. NPZ 파일 포맷
 
