@@ -57,7 +57,7 @@ NPZ 가 손상되거나 새 코호트가 들어왔다면 `preprocess_train_test_
 - `data['label']` — shape `(H, W)`, dtype int. center 슬라이스의 vessel-wise 마스크.
 - `sample_name` 은 보통 `<case_id>_slice<NN>` 형식이며 `tester.py:parse_case_and_slice_id` 가 `case_id` 와 `slice_id`(int) 로 분리해 3D 볼륨 합성 시 사용한다.
 
-## 4. CT 정규화 (`datasets/dataset.py:ct_normalization`)
+## 4. CT 정규화 (`dataset.py:ct_normalization`)
 
 ```python
 ct_normalization(image, lower=-2.0, upper=1521.0, mean=355.3804..., std=282.9181...)

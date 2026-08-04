@@ -15,7 +15,7 @@ SAU-Net/
 ├── train.py / trainer.py         # 학습 진입점 및 학습 루프
 ├── test.py  / tester.py          # 평가 진입점 및 3D 메트릭 계산
 ├── utils.py                      # PolyLRScheduler, DiceLoss, FocalLoss
-├── datasets/dataset.py           # COCA_dataset, CT normalization, augmentation
+├── dataset.py                    # COCA_dataset, CT normalization, augmentation
 ├── segmentation_models_pytorch/  # SMP 라이브러리를 in-tree 로 fork·수정한 코드
 │   └── encoders/
 │       ├── multi_slice_feature_fusion.py   # MSFFM 본체 (cross-attn / cosine fusion)
@@ -40,7 +40,7 @@ SAU-Net/
 
 ## 4. 핵심 컨벤션
 
-- **입력 텐서 모양:** `(B, 3, 512, 512)`. 채널 0/1/2 = `prev / reference / next` 슬라이스. augmentation·resize 도 채널 축을 보존하는 방식으로 작성되어 있다 (`datasets/dataset.py`).
+- **입력 텐서 모양:** `(B, 3, 512, 512)`. 채널 0/1/2 = `prev / reference / next` 슬라이스. augmentation·resize 도 채널 축을 보존하는 방식으로 작성되어 있다 (`dataset.py`).
 - **클래스 수:** 5 (배경 + LCA / LAD / LCX / RCA). `DiceLoss` 는 배경(index 0) 을 제외하고 평균.
 - **손실:** `loss = 0.5 * Dice + 0.5 * CrossEntropy`, AMP(`GradScaler`) 사용.
 - **옵티마이저·스케줄:** AdamW(lr=1e-5, wd=1e-4) + 커스텀 `PolyLRScheduler` (exponent=0.9).
@@ -73,7 +73,7 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 | 학습 시 `DataLoader(shuffle=False, collate_fn=shuffle_within_batch)` | shuffle 을 batch 내부에서 수행. 외부 shuffle 을 켜지 말 것 — 인접 슬라이스 정렬이 깨지면 MSFFM 가정이 무의미해진다. |
 | **학습 1개 = GPU 1개 (DataParallel 자동 함정)** | `trainer.py:77-78` 이 `torch.cuda.device_count()>1` 이면 **보이는 GPU 를 전부 `nn.DataParallel` 로 잡는다**. 한 학습(run)은 반드시 단일 GPU 로 돌려야 하므로 **매 실행에 `CUDA_VISIBLE_DEVICES=0` 또는 `=1` 을 명시**할 것 (그러면 `device_count()==1` → DataParallel 미적용). 두 GPU 가 모두 비면 `=0`/`=1` 로 서로 다른 실험을 동시에 돌려도 된다. 명령·병렬 워크플로 상세는 `docs/EXPERIMENTS.md §5·§8`. |
 | `ct_normalization` 의 상수 | 단일 hold-out 기본값 `lower=-2.0, upper=1521.0, mean=355.38, std=282.92` (train 300-case). **5-fold 경로는 이 기본값을 쓰지 않는다** — `hu_stats_433.json` (`15.0/1577.0/773.55/399.24`, 433-case 0.5/99.5 분위수) 을 `load_hu_stats` 로 읽어 `COCAVolumeDataset` 이 명시 인자로 전달한다. 두 경로의 정규화가 다르므로 절대 수치 직접 비교 금지. 다른 코호트(KMU 등) 적용 시 재산정. |
-| 로컬 `datasets` vs HuggingFace `datasets` | env 에 HF `datasets`(4.5.0)가 설치돼 있어, 로컬 `datasets/` 에 `__init__.py` 가 없으면 `import datasets.dataset` 이 HF 패키지에 가로채여 실패한다. **`datasets/__init__.py`(빈 파일) 를 지우지 말 것** — 로컬 패키지 우선권을 보장하는 마커다. |
+| `dataset.py` 가 저장소 루트에 있는 이유 | env 에 HF `datasets`(4.5.0)가 설치돼 있어, 예전 `datasets/` 패키지는 빈 `__init__.py` 로만 우선권을 잡고 있었다. 루트 `dataset.py` 로 옮겨 이름 충돌 자체를 없앴다 — `datasets/` 를 되살리지 말 것. |
 | 평가는 3D | `tester.py` 는 슬라이스 예측을 케이스별로 모아 3D 볼륨으로 합성한 뒤 MONAI 메트릭 (Dice/MeanIoU/SurfaceDistance) 을 적용한다. 2D 슬라이스 단위 메트릭이 필요하면 `compute_metrics_3d` 를 우회해야 한다. |
 | 5-fold CV 시 분할 단위 | 반드시 **case 단위**로 fold 를 나눠야 한다. 슬라이스 단위 stratify 는 같은 case 의 인접 슬라이스가 train/val 양쪽에 동시 등장해 NPZ 안의 prev/ref/next 채널을 통해 raw 픽셀이 누수된다 (2.5D 가정 파괴). 층화 키는 vessel multi-hot 벡터, API 는 `MultilabelStratifiedKFold`. 결정 배경은 `TODO.md` §1.2~§1.3. |
 
