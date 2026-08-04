@@ -12,7 +12,7 @@ from glob import glob
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torchvision import transforms as T
-from datasets.dataset import COCA_dataset, Resize, ToTensor
+from dataset import COCA_dataset, Resize, ToTensor
 from utils import calculate_metric_percase
 
 parser = argparse.ArgumentParser()
