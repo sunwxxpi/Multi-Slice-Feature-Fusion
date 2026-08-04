@@ -1,0 +1,22 @@
+159 --> [IM-3255-0021.dcm] Tag 없음.
+
+78, 120, 146, 155, 156, 165, 192, 194, 228, 276, 358, 417 --> Z spacing : 0.0
+38 --> Z spacing : 2.9499999999999886
+
+12, 197 --> DCM Raw files 없음.
+
+415, 421 --> Unnamed ROI 포함
+
+18장 제외
+<433/451>
+
+
+
+
+
+
+Z spacing of COCA/COCA_final/19/dcm: 2.5
+Z spacing of COCA/COCA_final/28/dcm: 2.5
+Z spacing of COCA/COCA_final/33/dcm: 1.5
+Z spacing of COCA/COCA_final/76/dcm: 2.5
+Z spacing of COCA/COCA_final/77/dcm: 2.5
