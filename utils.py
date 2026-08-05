@@ -12,16 +12,24 @@ import segmentation_models_pytorch as smp
 for _name in SMP_ENCODERS:
     assert _name in smp.encoders.encoders, f"SMP 레지스트리에 없음: {_name}"
 
+EMCAD_ENCODERS = ['pvt_v2_b0', 'pvt_v2_b1', 'pvt_v2_b2', 'pvt_v2_b3', 'pvt_v2_b4', 'pvt_v2_b5',
+                  'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']
+# MSFFM 의 NonLocalBlock 채널이 320/512 로 고정이라 pvt_v2_b0(160/256) 은 지원하지 않는다.
+EMCAD_SA_ENCODERS = ['pvt_v2_b1', 'pvt_v2_b2', 'pvt_v2_b3', 'pvt_v2_b4', 'pvt_v2_b5']
+
+_ALLOWED_ENCODERS = {'unet': SMP_ENCODERS, 'segformer': SMP_ENCODERS,
+                     'emcad': EMCAD_ENCODERS, 'emcad_sa': EMCAD_SA_ENCODERS}
+
 def allowed_encoders(decoder):
     """decoder 가 받는 encoder 이름 목록. argparse choices 는 합집합이라 조합 검증이 따로 필요하다."""
-    return SMP_ENCODERS
+    return _ALLOWED_ENCODERS[decoder]
 
 def derive_num_slices(decoder, encoder):
     """입력 슬라이스 수. 별도 플래그 없이 모델 구성이 결정한다.
 
-    `_sa` encoder 는 prev/reference/next 3장, 나머지는 reference 1장을 받는다.
+    `_sa` encoder 와 emcad_sa 디코더는 prev/reference/next 3장, 나머지는 reference 1장을 받는다.
     """
-    return 3 if encoder.endswith('_sa') else 1
+    return 3 if (encoder.endswith('_sa') or decoder == 'emcad_sa') else 1
 
 def powerset(iterable):
     # EMCAD deep supervision 의 'mutation' 전략용: 공집합 포함 출력 조합 전체를 순회한다.
