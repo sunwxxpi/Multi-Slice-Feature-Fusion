@@ -45,6 +45,8 @@ Z_final = Z_fused ⊕ X_ref                            # residual
 
 ## 3. 코드와의 매핑
 
+MSFFM 은 코드베이스에 두 embodiment 로 존재한다 — SMP 인코더의 `*_sa` 계열(§3.1~3.3)과 EMCAD 백본(§3.4). 둘 다 stage 3/4 에 `NonLocalBlock` 3개(prev/self/next) + `compress` conv(1×1) + residual 구조로 동일하다.
+
 ### 3.1 활성 구현 (`segmentation_models_pytorch/encoders/resnet_sa.py`)
 
 - `NonLocalBlock` 클래스가 attention 한 쌍을 담당한다. 호출은 `cross_attention_*(x_thisBranch, x_otherBranch)` 이고 매핑은 (원고 §2.2)
@@ -76,6 +78,13 @@ Z_final = Z_fused ⊕ X_ref                            # residual
 
 - `densenet_sa.py`, `efficientnet_sa.py`, `mix_transformer_sa.py` 모두 같은 패턴을 따른다.
 - 각 파일은 해당 백본의 원본(non-SA) 모듈을 `from .{backbone} import {Backbone}Encoder` 식으로 import 하지 않고, 백본별로 forward 흐름을 다시 작성해 두었다. 따라서 stage 단위 hook 위치 (어디서 MSFFM 을 끼울지) 가 백본마다 다를 수 있다 — 코드의 stage 주석을 직접 따라가야 한다.
+
+### 3.4 EMCAD 경로 (`networks/emcad/pvtv2.py`)
+
+- `PyramidVisionTransformerImpr.__init__` 이 `use_msffm=True` 일 때 stage3(채널 320)·stage4(채널 512) 에 각각 `cross_attention_{prev,self,next}_{3,4}` (`NonLocalBlock`, num_heads=8) 와 `compress_{3,4}` (1×1 conv) 를 만든다. `use_msffm=False` 면 아무것도 만들지 않는다 — SMP 쪽처럼 별도 클래스가 아니라 같은 백본 클래스의 생성자 플래그 분기다.
+- `EMCADNet` 은 `use_msffm=False` 로 고정, `EMCAD_SA_Net(EMCADNet)` 은 `__init__` 에서 `use_msffm=True` 를 강제한다. 두 클래스가 다르므로 체크포인트 경로(`net.__class__.__name__`)가 자동으로 갈린다.
+- `forward_features` 의 `_fuse(x_main, x_prev, x_next, prev_attn, self_attn, next_attn, compress)` 가 융합을 담당: `compress(cat(prev_attn(x_main,x_prev), self_attn(x_main,x_main), next_attn(x_main,x_next))) + x_main` — SMP 경로의 `compress(cat(...)) + x_main` 과 동일한 구조.
+- `pvt_v2_b0` 은 stage3/4 채널이 160/256 이라 `NonLocalBlock` 의 하드코딩 채널(320/512)과 안 맞아 `use_msffm=True` 를 assert 로 거부한다 — `--decoder emcad_sa` 의 encoder 허용 목록이 `pvt_v2_b1`~`b5` 인 이유(`utils.py:EMCAD_SA_ENCODERS`).
 
 ## 4. Encoder Registry 흐름
 
