@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from torchvision import transforms as T
 from matplotlib.patches import Rectangle
 from monai.metrics import DiceMetric, MeanIoU, HausdorffDistanceMetric, SurfaceDistanceMetric
-from dataset import COCA_dataset, COCAVolumeDataset, load_hu_stats, Resize, ToTensor
+from dataset import COCAVolumeDataset, load_hu_stats, Resize, ToTensor
 
 # 전역 딕셔너리: forward hook을 통해 각 NonLocalBlock의 attention map을 저장
 attn_dict = {}
