@@ -14,6 +14,13 @@ assert (0,) in ss and (0, 1, 2, 3) in ss
 assert len(set(ss)) == 15, '중복 조합 존재'
 assert all(all(0 <= i < 4 for i in s) for s in ss), '범위 밖 인덱스'
 
+# 조합 순서까지 통합 전 EMCAD 의 재귀 powerset 과 같아야 한다. 집합만 같고 순서가 다르면
+# 15개 손실의 누적 순서가 바뀌어 fp32 최말단 비트(실측 1 ulp)가 통합 전과 달라진다.
+assert ss == [(0, 1, 2, 3), (1, 2, 3), (0, 2, 3), (2, 3),
+              (0, 1, 3), (1, 3), (0, 3), (3,),
+              (0, 1, 2), (1, 2), (0, 2), (2,),
+              (0, 1), (1,), (0,)], ss
+
 # deep_supervision: 각 출력 단계 하나씩
 assert build_supervision('deep_supervision', 4) == [(0,), (1,), (2,), (3,)]
 

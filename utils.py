@@ -1,5 +1,3 @@
-from itertools import chain, combinations
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,9 +24,17 @@ def derive_num_slices(decoder, encoder):
     return 3 if encoder.endswith('_sa') else 1
 
 def powerset(iterable):
-    # EMCAD deep supervision 의 'mutation' 전략용: 출력 조합 전체를 순회한다.
-    s = list(iterable)
-    return chain.from_iterable(combinations(s, r) for r in range(len(s) + 1))
+    # EMCAD deep supervision 의 'mutation' 전략용: 공집합 포함 출력 조합 전체를 순회한다.
+    # 통합 전 EMCAD 의 재귀 열거 순서를 그대로 유지한다 — itertools.combinations 의 크기순
+    # 열거는 조합 집합은 같지만 손실 누적 순서가 바뀌어 fp32 최말단 비트가 달라진다.
+    seq = tuple(iterable)
+    if len(seq) <= 1:
+        yield seq
+        yield ()
+    else:
+        for item in powerset(seq[1:]):
+            yield seq[:1] + item
+            yield item
 
 def build_supervision(strategy, n_outs):
     """모델 출력 개수에 맞는 deep supervision 조합 목록을 만든다.
