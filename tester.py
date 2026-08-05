@@ -41,24 +41,26 @@ def parse_case_and_slice_id(full_name: str) -> tuple:
 
 def run_inference_on_slice(image: torch.Tensor, label: torch.Tensor, model: torch.nn.Module) -> tuple:
     """
-    image: (1, 3, H, W) 텐서, 3채널은 prev, main, next 슬라이스
+    image: (1, C, H, W) 텐서. C=3 이면 prev/reference/next, C=1 이면 reference 한 장.
     label: (1, H, W) 텐서 (center slice의 레이블)
     """
-    image_np = image.squeeze(0).cpu().numpy()  # (3, H, W)
+    image_np = image.squeeze(0).cpu().numpy()  # (C, H, W)
     label_np = label.squeeze(0).cpu().numpy()    # (H, W)
     C, H, W = image_np.shape
-    assert C == 3, "Input image must have 3 channels (3 slices)."
+    assert C in (1, 3), f"입력 채널은 1(single-slice) 또는 3(2.5D triplet) 이어야 함 (받은 값: {C})"
 
     model.eval()
     with torch.no_grad():
         with autocast():
             input_tensor = image.float().cuda()
-            logits = model(input_tensor)
+            out = model(input_tensor)
+            # EMCAD 계열은 deep supervision 으로 [P1..P4] 를 반환한다. 최종단만 예측에 쓴다.
+            logits = out[-1] if isinstance(out, (list, tuple)) else out
             pred_2d = torch.argmax(torch.softmax(logits, dim=1), dim=1).squeeze(0).cpu().numpy()
 
     prediction = pred_2d.astype(np.uint8)
     label_slice = label_np.astype(np.uint8)
-    
+
     return prediction, label_slice
 
 def accumulate_slice_prediction(image_dict: dict, pred_dict: dict, label_dict: dict, case_id: str, slice_id: int, pred_2d: np.ndarray, label_2d: np.ndarray, img_2d: np.ndarray):
@@ -83,9 +85,12 @@ def build_3d_volume(image_slices: dict, pred_slices: dict, label_slices: dict, c
     pred_3d = np.zeros((depth, H, W), dtype=np.uint8)
     label_3d = np.zeros((depth, H, W), dtype=np.uint8)
 
+    # image_slices[z] 는 (C,H,W). center 는 3채널이면 1, 1채널이면 0.
+    center = image_slices[sorted_ids[0]].shape[0] // 2
+
     for z in sorted_ids:
         index = z - min_z
-        image_3d[index, :, :] = image_slices[z][1, :, :]
+        image_3d[index, :, :] = image_slices[z][center, :, :]
         pred_3d[index, :, :] = pred_slices[z]
         label_3d[index, :, :] = label_slices[z]
         
@@ -205,7 +210,8 @@ def visualize_attention(attn_dict, input_image, label, file_name, save_path):
       5. stage3와 stage4 각각에 대해 prev, self, next 총 3가지 map을 2행 3열 subplot으로 그려 저장.
     """
     # 1. center slice와 label을 그대로 사용
-    main_img = input_image[1]  # center slice, shape: (H, W)
+    # input_image 는 (C,H,W). center 는 3채널이면 1, 1채널이면 0.
+    main_img = input_image[input_image.shape[0] // 2]
     H, W = main_img.shape
 
     # 2. label에서 병변 영역(픽셀 값 > 0) 확인
@@ -308,19 +314,14 @@ def visualize_attention(attn_dict, input_image, label, file_name, save_path):
 def inference(args, model, test_save_path: str = None):
     test_transform = T.Compose([Resize(output_size=[args.img_size, args.img_size]),
                                 ToTensor()])
-    if getattr(args, 'use_5fold_cv', False):
-        # 평가 대상은 학습 때의 validation fold (fold_idx). per-case 볼륨에서 로드.
-        hu = load_hu_stats(args.hu_stats_path)
-        with open(os.path.join(args.list_dir_5fold, f"fold{args.fold_idx}.txt"), 'r') as f:
-            test_samples = [ln.strip() for ln in f if ln.strip()]
-        db_test = COCAVolumeDataset(os.path.join(args.root_path_5fold, 'images'),
-                                    os.path.join(args.root_path_5fold, 'labels'),
-                                    test_samples, transform=test_transform, hu_stats=hu)
-    else:
-        db_test = COCA_dataset(base_dir=args.root_path,
-                               list_dir=args.list_dir,
-                               split="test",
-                               transform=test_transform)
+    # 평가 대상은 학습 때의 validation fold (fold_idx). per-case 볼륨에서 로드.
+    hu = load_hu_stats(args.hu_stats_path)
+    with open(os.path.join(args.list_dir_5fold, f"fold{args.fold_idx}.txt"), 'r') as f:
+        test_samples = [ln.strip() for ln in f if ln.strip()]
+    db_test = COCAVolumeDataset(os.path.join(args.root_path_5fold, 'images'),
+                                os.path.join(args.root_path_5fold, 'labels'),
+                                test_samples, transform=test_transform, hu_stats=hu,
+                                num_slices=args.num_slices)
     testloader = DataLoader(db_test, batch_size=1, shuffle=False, num_workers=1)
     logging.info(f"{len(testloader)} test iterations per epoch")
 

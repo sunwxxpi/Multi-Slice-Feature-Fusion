@@ -36,31 +36,23 @@ def trainer_coca(args, model, snapshot_path):
     val_transform = T.Compose([Resize(output_size=[args.img_size, args.img_size]),
                                ToTensor()])
 
-    if getattr(args, 'use_5fold_cv', False):
-        # 433-case 통합 풀의 case 단위 5-fold. train = fold_idx 제외 4개 fold, val = fold_idx.
-        hu = load_hu_stats(args.hu_stats_path)
-        image_dir = os.path.join(args.root_path_5fold, 'images')
-        label_dir = os.path.join(args.root_path_5fold, 'labels')
-        train_samples = []
-        for k in range(5):
-            if k == args.fold_idx:
-                continue
-            train_samples += _read_fold_list(args.list_dir_5fold, k)
-        val_samples = _read_fold_list(args.list_dir_5fold, args.fold_idx)
-        db_train = COCAVolumeDataset(image_dir, label_dir, train_samples,
-                                     transform=train_transform, hu_stats=hu)
-        db_val = COCAVolumeDataset(image_dir, label_dir, val_samples,
-                                   transform=val_transform, hu_stats=hu)
-        logging.info(f"5-fold CV: val fold={args.fold_idx}, train folds={[k for k in range(5) if k != args.fold_idx]}")
-    else:
-        db_train = COCA_dataset(base_dir=args.root_path,
-                                list_dir=args.list_dir,
-                                split="train",
-                                transform=train_transform)
-        db_val = COCA_dataset(base_dir=args.root_path,
-                              list_dir=args.list_dir,
-                              split="val",
-                              transform=val_transform)
+    # 433-case 통합 풀의 case 단위 5-fold. train = fold_idx 제외 4개 fold, val = fold_idx.
+    hu = load_hu_stats(args.hu_stats_path)
+    image_dir = os.path.join(args.root_path_5fold, 'images')
+    label_dir = os.path.join(args.root_path_5fold, 'labels')
+    train_samples = []
+    for k in range(5):
+        if k == args.fold_idx:
+            continue
+        train_samples += _read_fold_list(args.list_dir_5fold, k)
+    val_samples = _read_fold_list(args.list_dir_5fold, args.fold_idx)
+    db_train = COCAVolumeDataset(image_dir, label_dir, train_samples,
+                                 transform=train_transform, hu_stats=hu,
+                                 num_slices=args.num_slices)
+    db_val = COCAVolumeDataset(image_dir, label_dir, val_samples,
+                               transform=val_transform, hu_stats=hu,
+                               num_slices=args.num_slices)
+    logging.info(f"5-fold CV: val fold={args.fold_idx}, train folds={[k for k in range(5) if k != args.fold_idx]}, num_slices={args.num_slices}")
 
     print("The length of train set is: {}".format(len(db_train)))
     print("The length of validation set is: {}".format(len(db_val)))
