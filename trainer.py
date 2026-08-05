@@ -11,7 +11,7 @@ from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 from tqdm import tqdm
-from utils import PolyLRScheduler, DiceLoss
+from utils import build_supervision, PolyLRScheduler, DiceLoss
 from dataset import (shuffle_within_batch, COCAVolumeDataset,
                               load_hu_stats, RandomAugmentation, Resize, ToTensor)
 
@@ -71,6 +71,9 @@ def trainer_coca(args, model, snapshot_path):
     
     dice_loss_class = DiceLoss()
     ce_loss_class = CrossEntropyLoss()
+
+    # deep supervision 조합. 모델 출력 개수를 알아야 하므로 첫 batch 에서 확정한다.
+    ss = None
     # optimizer = optim.SGD(model.parameters(), lr=base_lr, weight_decay=3e-5, momentum=0.99, nesterov=True)
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
     
@@ -102,12 +105,25 @@ def trainer_coca(args, model, snapshot_path):
             image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
 
             with autocast():
-                outputs = model(image_batch)
-                
-                dice_loss = dice_loss_class(outputs, label_batch, softmax=True)
-                ce_loss = ce_loss_class(outputs, label_batch)
-                loss = (0.5 * dice_loss) + (0.5 * ce_loss)
-            
+                P = model(image_batch)
+                if not isinstance(P, (list, tuple)):
+                    P = [P]
+
+                if ss is None:
+                    ss = build_supervision(args.supervision, len(P))
+                    logging.info(f"Supervision strategy: {args.supervision} (n_outs={len(P)}) -> {ss}")
+
+                sum_dice_loss = 0.0
+                sum_ce_loss = 0.0
+                loss = 0.0
+                for s in ss:
+                    iout = sum(P[idx] for idx in s)
+                    dice_loss = dice_loss_class(iout, label_batch, softmax=True)
+                    ce_loss = ce_loss_class(iout, label_batch)
+                    sum_dice_loss += dice_loss
+                    sum_ce_loss += ce_loss
+                    loss += (args.dice_weight * dice_loss) + (args.ce_weight * ce_loss)
+
             optimizer.zero_grad()
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -118,11 +134,11 @@ def trainer_coca(args, model, snapshot_path):
             
             iter_num += 1
             
-            train_dice_loss += dice_loss.item()
-            train_ce_loss += ce_loss.item()
+            train_dice_loss += sum_dice_loss.item()
+            train_ce_loss += sum_ce_loss.item()
             train_loss += loss.item()
 
-            logging.info('epoch %d, iteration %d - dice_loss: %f, ce_loss: %f, loss_total: %f' % (epoch_num, iter_num, dice_loss.item(), ce_loss.item(), loss.item()))
+            logging.info('epoch %d, iteration %d - dice_loss: %f, ce_loss: %f, loss_total: %f' % (epoch_num, iter_num, sum_dice_loss.item(), sum_ce_loss.item(), loss.item()))
             
             if iter_num % 50 == 0:
                 image = image_batch[1, 0:1, :, :]
@@ -130,7 +146,7 @@ def trainer_coca(args, model, snapshot_path):
                 
                 writer.add_image('train/Image', image, iter_num)
                 
-                pred = torch.argmax(torch.softmax(outputs, dim=1), dim=1, keepdim=True)
+                pred = torch.argmax(torch.softmax(P[-1], dim=1), dim=1, keepdim=True)
                 writer.add_image('train/Prediction', pred[1, ...] * 50, iter_num)
 
                 labels = label_batch[1, ...].unsqueeze(0) * 50
@@ -157,14 +173,27 @@ def trainer_coca(args, model, snapshot_path):
                 image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
                 
                 with autocast():
-                    outputs = model(image_batch)
-                    
-                    dice_loss = dice_loss_class(outputs, label_batch, softmax=True)
-                    ce_loss = ce_loss_class(outputs, label_batch)
-                    loss = (0.5 * dice_loss) + (0.5 * ce_loss)
-                
-                val_dice_loss += dice_loss.item()
-                val_ce_loss += ce_loss.item()
+                    P = model(image_batch)
+                    if not isinstance(P, (list, tuple)):
+                        P = [P]
+
+                    if ss is None:
+                        ss = build_supervision(args.supervision, len(P))
+                        logging.info(f"Supervision strategy: {args.supervision} (n_outs={len(P)}) -> {ss}")
+
+                    sum_dice_loss = 0.0
+                    sum_ce_loss = 0.0
+                    loss = 0.0
+                    for s in ss:
+                        iout = sum(P[idx] for idx in s)
+                        dice_loss = dice_loss_class(iout, label_batch, softmax=True)
+                        ce_loss = ce_loss_class(iout, label_batch)
+                        sum_dice_loss += dice_loss
+                        sum_ce_loss += ce_loss
+                        loss += (args.dice_weight * dice_loss) + (args.ce_weight * ce_loss)
+
+                val_dice_loss += sum_dice_loss.item()
+                val_ce_loss += sum_ce_loss.item()
                 val_loss += loss.item()
 
         val_dice_loss /= len(valloader)

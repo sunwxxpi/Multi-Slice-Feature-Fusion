@@ -1,3 +1,5 @@
+from itertools import chain, combinations
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -22,6 +24,24 @@ def derive_num_slices(decoder, encoder):
     `_sa` encoder 는 prev/reference/next 3장, 나머지는 reference 1장을 받는다.
     """
     return 3 if encoder.endswith('_sa') else 1
+
+def powerset(iterable):
+    # EMCAD deep supervision 의 'mutation' 전략용: 출력 조합 전체를 순회한다.
+    s = list(iterable)
+    return chain.from_iterable(combinations(s, r) for r in range(len(s) + 1))
+
+def build_supervision(strategy, n_outs):
+    """모델 출력 개수에 맞는 deep supervision 조합 목록을 만든다.
+
+    단일 출력 모델은 strategy 와 무관하게 최종단 하나만 쓴다 (기존 SMP 경로와 동일).
+    """
+    if n_outs == 1:
+        return [(-1,)]
+    if strategy == 'mutation':
+        return [s for s in powerset(range(n_outs)) if s]
+    if strategy == 'deep_supervision':
+        return [(i,) for i in range(n_outs)]
+    return [(-1,)]
 
 class PolyLRScheduler(_LRScheduler):
     def __init__(self, optimizer, initial_lr: float, max_steps: int, exponent: float = 0.9, current_step: int = None):
