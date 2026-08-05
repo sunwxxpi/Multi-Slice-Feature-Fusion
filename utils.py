@@ -3,6 +3,26 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import _LRScheduler
 
+SMP_ENCODERS = ['resnet50', 'densenet201', 'efficientnet-b4', 'mit_b2',
+                'resnet50_sa', 'densenet201_sa', 'efficientnet-b4_sa', 'mit_b2_sa']
+
+# 이 목록이 실제 SMP 레지스트리와 어긋나면 argparse 는 통과시키고 모델 생성에서 죽는다.
+# Gate A/B 는 resnet50 / resnet50_sa / pvt_v2_b2 만 실행하므로 나머지 6개는 어떤 게이트도 안 탄다.
+import segmentation_models_pytorch as smp
+for _name in SMP_ENCODERS:
+    assert _name in smp.encoders.encoders, f"SMP 레지스트리에 없음: {_name}"
+
+def allowed_encoders(decoder):
+    """decoder 가 받는 encoder 이름 목록. argparse choices 는 합집합이라 조합 검증이 따로 필요하다."""
+    return SMP_ENCODERS
+
+def derive_num_slices(decoder, encoder):
+    """입력 슬라이스 수. 별도 플래그 없이 모델 구성이 결정한다.
+
+    `_sa` encoder 는 prev/reference/next 3장, 나머지는 reference 1장을 받는다.
+    """
+    return 3 if encoder.endswith('_sa') else 1
+
 class PolyLRScheduler(_LRScheduler):
     def __init__(self, optimizer, initial_lr: float, max_steps: int, exponent: float = 0.9, current_step: int = None):
         self.optimizer = optimizer

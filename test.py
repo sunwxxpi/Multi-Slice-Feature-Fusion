@@ -9,6 +9,7 @@ import torch.backends.cudnn as cudnn
 import segmentation_models_pytorch as smp
 from glob import glob
 from tester import inference, get_attn_hook
+from utils import SMP_ENCODERS, allowed_encoders, derive_num_slices
 
 def add_encoder_prefix(state_dict, prefix='encoder.'):
     new_state_dict = {}
@@ -24,15 +25,16 @@ def add_encoder_prefix(state_dict, prefix='encoder.'):
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='COCA', help='dataset name')
-parser.add_argument('--root_path', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/test_npz', help='root dir for validation volume data')
-parser.add_argument('--list_dir', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/lists_COCA', help='list dir')
 parser.add_argument('--num_classes', type=int, default=5, help='output channel of network')
 parser.add_argument('--max_epochs', type=int, default=300, help='maximum epoch number to train')
 parser.add_argument('--batch_size', type=int, default=16, help='batch_size per gpu')
 parser.add_argument('--base_lr', type=float, default=0.00001, help='segmentation network learning rate')
 parser.add_argument('--img_size', type=int, default=512, help='input patch size of network input')
-parser.add_argument('--encoder', type=str, default='resnet50_sa', help='for segmentation_models_pytorch encoder', choices=['resnet50_sa', 'densenet201_sa', 'efficientnet-b4_sa', 'mit_b2_sa'])
-parser.add_argument('--decoder', type=str, default='unet', help='for segmentation_models_pytorch decoder', choices=['unet', 'segformer'])
+parser.add_argument('--encoder', type=str, default='resnet50_sa',
+                    help='encoder 이름. --decoder 에 따라 허용 목록이 다르다',
+                    choices=SMP_ENCODERS)
+parser.add_argument('--decoder', type=str, default='unet',
+                    choices=['unet', 'segformer'])
 parser.add_argument('--exp_setting', type=str,  default='default', help='description of experiment setting')
 parser.add_argument('--deterministic', type=int, default=1, help='whether use deterministic training')
 parser.add_argument('--seed', type=int, default=42, help='random seed')
@@ -47,6 +49,7 @@ parser.add_argument('--hu_stats_path', type=str, default='/home/psw/SAU-Net/data
 # Attention 시각화 옵션. 켜면 NonLocalBlock 들의 return_attention=True 자동 토글 + hook 자동 등록 + 시각화 저장.
 parser.add_argument('--save_attention', action="store_true", help='enable attention visualization saving')
 args = parser.parse_args()
+args.num_slices = derive_num_slices(args.decoder, args.encoder)
 
 if __name__ == "__main__":
     if not args.deterministic:
