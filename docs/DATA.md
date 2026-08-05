@@ -14,13 +14,13 @@
 
 ```
 data/datasets/COCA/                              ← 데이터셋 루트 (git 제외)
-├── COCA_3frames/                                ← single hold-out 용 (기존, 그대로 보존)
+├── COCA_3frames/                                ← single hold-out 용 (동결 브랜치 single_slice/EMCAD/EMCAD-SA 전용)
 │   ├── train_npz/<sample_name>.npz              ← (H, W, 3) image + (H, W) label
 │   ├── test_npz/<sample_name>.npz
 │   └── lists_COCA/                              ← single hold-out 분할
 │       ├── train.txt                            ← 14507 lines (slice 단위)
 │       └── test.txt                             ←  6283 lines
-├── COCA_3frames_5fold/                          ← 5-fold CV 용 (신규, rebuild 산출물)
+├── COCA_3frames_5fold/                          ← 5-fold CV 용 (이 브랜치의 유일한 활성 경로)
 │   ├── images/case{0000..0450}.npy             ← per-case (D, H, W) float32 볼륨 (memmap)
 │   ├── labels/case{0000..0450}.npy             ← per-case (D, H, W) uint8 라벨
 │   ├── lists_COCA_5fold/                        ← case-level stratified 분할
@@ -45,12 +45,7 @@ data/dataprep/                                   ← 전처리/조직화 스크�
 
 `build_5fold_dataset.py` 만 절대경로를 쓰고 나머지는 전부 상대경로라 실행 위치가 결과를 바꾼다 — [`data/dataprep/README.md`](../data/dataprep/README.md) 참조.
 
-`train.py` / `test.py` argparse 기본값:
-- `root_path = /home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/train_npz` (학습)
-- `root_path = /home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/test_npz`  (평가)
-- `list_dir  = /home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/lists_COCA`
-
-다른 환경에서 실행할 때는 반드시 `--root_path` / `--list_dir` 를 지정. `train.txt` 는 학습/검증을 80:20 으로 분할 (`sklearn.model_selection.train_test_split`, `shuffle=False`, seed 42).
+`COCA_3frames/` 는 동결 브랜치(`single_slice`/`EMCAD`/`EMCAD-SA`) 전용 포맷이다 — 이 브랜치의 `train.py`/`test.py` 는 `--root_path`/`--list_dir` 인자 자체가 없다 (5-fold 통합 시 제거됨). 동결 브랜치에서는 `train.txt` 를 학습/검증 80:20 으로 분할해 썼다 (`sklearn.model_selection.train_test_split`, `shuffle=False`, seed 42). 이 브랜치의 활성 경로 인자는 `--root_path_5fold`/`--list_dir_5fold`/`--hu_stats_path` (§9).
 
 NPZ 가 손상되면 `data/dataprep/preprocess_train_test_data_3frames.py` 가 `Dataset001_COCA` 의 nnUNet `.nii.gz` 로부터 `(H, W, 3)` 슬라이스 묶음과 list 파일을 재생성한다. `Dataset001_COCA` 가 저장소에 있으므로 이 경로는 지금도 쓸 수 있다.
 새 코호트가 DICOM/XML 로 들어오는 경우는 다르다 — 그 앞단 스크립트가 읽는 원본 트리(`COCA/COCA_final`, `COCA/Gated_release_final`)는 이 저장소로 옮겨오지 않아 디스크에 없다.
@@ -155,3 +150,4 @@ DataLoader(db_train, batch_size=16, shuffle=False, num_workers=8,
 - `db_train` = `fold_idx` 제외 4개 fold sample 합집합 (≈346 case, ~16,600 슬라이스), `db_val` = `fold{fold_idx}.txt` (≈87 case, ~4,150 슬라이스). train:val ≈ 4:1. (fold 별 실제 case/슬라이스 수는 §9.2 표 참고.)
 - `COCAVolumeDataset` 가 case 볼륨을 memmap 으로 lazy 로드(case 별 캐시)해 `vol[n:n+3]`→`(H,W,3)`
   + `vol[n+1]` center label 조립, `ct_normalization(**hu)` 적용. `db_val` 은 augmentation 비활성. DataLoader 의 `shuffle=False + collate_fn=shuffle_within_batch` 패턴 유지 (CLAUDE.md §6).
+- `num_slices` 는 `derive_num_slices(decoder, encoder)` 가 결정한다 — 3 이면 `vol[n:n+3]` 을 prev/center/next `(H,W,3)` 로, 1 이면 center 슬라이스 한 장만 `(H,W,1)` 로 반환한다. label 은 두 경우 모두 center(`vol[n+1]`).

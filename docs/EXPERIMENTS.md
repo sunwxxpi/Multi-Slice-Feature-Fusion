@@ -2,29 +2,7 @@
 
 ## 1. 표준 학습 명령
 
-### 1.1 Single hold-out (기존 기본 경로)
-
-```bash
-CUDA_VISIBLE_DEVICES=0 python train.py \
-  --dataset COCA \
-  --root_path /path/to/COCA_3frames/train_npz \
-  --list_dir  /path/to/COCA_3frames/lists_COCA \
-  --encoder   resnet50_sa \
-  --decoder   unet \
-  --num_classes 5 \
-  --img_size  512 \
-  --max_epochs 300 \
-  --batch_size 16 \
-  --base_lr   1e-5 \
-  --exp_setting msffm_resnet50_unet_fold0_seed42
-```
-
-- 모든 명령은 `CUDA_VISIBLE_DEVICES=0` 로 GPU 1개에 핀한다 — 미지정 시 다중 GPU 환경에서 DataParallel 이 보이는 GPU 를 전부 잡는다 (§5).
-- 인자 기본값은 원고 §2.3 의 학습 설정과 일치한다 (AdamW, lr=1e-5, batch=16, 300 epochs, PolyLR, MHA heads=8).
-
-### 1.2 5-Fold Stratified CV (`TODO.md` §1 의 권장 워크플로)
-
-§1.1 과 동일하되 hold-out 인자(`--root_path`/`--list_dir`) 대신 5-fold 인자를 쓴다. 공통 인자(`--dataset/--num_classes/--img_size/--batch_size/--base_lr`)는 기본값이라 생략 가능.
+5-fold CV 가 유일한 경로다 — hold-out 인자(`--root_path`/`--list_dir`)는 통합 시 제거돼 더 이상 존재하지 않는다. 공통 인자(`--dataset/--num_classes/--img_size/--batch_size/--base_lr`)는 기본값이라 생략 가능.
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python train.py --use_5fold_cv --fold_idx 0 \
@@ -33,30 +11,38 @@ CUDA_VISIBLE_DEVICES=0 python train.py --use_5fold_cv --fold_idx 0 \
   --exp_setting msffm_resnet50_unet_fold0_seed42
 ```
 
-- `--fold_idx` 를 0~4 로 바꿔가며 총 5회 학습. exp_setting 의 `fold{K}` 부분도 함께 바꿔야 함 (불일치 시 경고만 출력되고 학습은 진행).
-- `--use_5fold_cv` 일 때 `--root_path` / `--list_dir` 는 무시되고 `--root_path_5fold` (기본 `COCA_3frames_5fold`), `--list_dir_5fold`, `--hu_stats_path` 가 쓰인다 (모두 기본값이 박혀 있어 보통 생략 가능).
+- 모든 명령은 `CUDA_VISIBLE_DEVICES=0` 로 GPU 1개에 핀한다 — 미지정 시 다중 GPU 환경에서 DataParallel 이 보이는 GPU 를 전부 잡는다 (§5).
+- 인자 기본값은 원고 §2.3 의 학습 설정과 일치한다 (AdamW, lr=1e-5, batch=16, 300 epochs, PolyLR, MHA heads=8).
+- `--fold_idx` 를 0~4 로 바꿔가며 총 5회 학습. exp_setting 의 `fold{K}` 부분도 함께 바꿔야 함 — 불일치 시 `parser.error(...)` 로 즉시 종료된다 (체크포인트 경로가 fold 를 반영하지 않아 다른 fold 를 덮어쓰는 사고를 막기 위함).
+- `--root_path_5fold` (기본 `COCA_3frames_5fold`), `--list_dir_5fold`, `--hu_stats_path` 는 모두 기본값이 박혀 있어 보통 생략 가능. `--use_5fold_cv` 는 하위 호환용 플래그로, 값과 무관하게 항상 이 경로를 쓴다(`CLAUDE.md` §3).
 - `--max_epochs 300` 은 상한선. early stopping (patience=50) 이 fold 별로 실제 종료 epoch 을 결정.
 - 자세한 결정 배경, 분할 키, 정규화 상수 정책은 `TODO.md` §1.
 
-## 2. 표준 평가 명령
+### 1.1 4 구성 예시 (fold0)
 
-### 2.1 Single hold-out
+통합 이후 4가지 구성 모두 같은 진입점에서 `--decoder`/`--encoder` 조합만 바꿔 돈다.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python test.py \
-  --dataset COCA \
-  --root_path /path/to/COCA_3frames/test_npz \
-  --list_dir  /path/to/COCA_3frames/lists_COCA \
-  --encoder   resnet50_sa \
-  --decoder   unet \
-  --exp_setting msffm_resnet50_unet_fold0_seed42 \
-  --is_savenii      # NIfTI 출력이 필요할 때만
+# MSFFM + U-Net (fold 0)
+CUDA_VISIBLE_DEVICES=0 python train.py --decoder unet --encoder resnet50_sa \
+    --use_5fold_cv --fold_idx 0 --exp_setting msffm_resnet50_unet_fold0_seed42
+
+# single-slice baseline (fold 0)
+CUDA_VISIBLE_DEVICES=1 python train.py --decoder unet --encoder resnet50 \
+    --use_5fold_cv --fold_idx 0 --exp_setting baseline_resnet50_unet_fold0_seed42
+
+# EMCAD + MSFFM (fold 0)
+CUDA_VISIBLE_DEVICES=0 python train.py --decoder emcad_sa --encoder pvt_v2_b2 \
+    --use_5fold_cv --fold_idx 0 --exp_setting emcad_sa_fold0_seed42
+
+# EMCAD baseline (fold 0)
+CUDA_VISIBLE_DEVICES=1 python train.py --decoder emcad --encoder pvt_v2_b2 \
+    --use_5fold_cv --fold_idx 0 --exp_setting emcad_fold0_seed42
 ```
 
-- `--exp_setting`, `--max_epochs`, `--batch_size`, `--base_lr`, `--img_size` 가 학습 때와 동일해야 체크포인트 경로가 매칭된다. 불일치 시 `FileNotFoundError` 발생.
-- 결과는 `./test_log/{NetClass}_{encoder}/COCA_512/{exp_setting}/epo300_bs16_lr1e-05/results.txt` 에 누적된다. `is_savenii` 가 켜져 있으면 같은 디렉터리에 `results_nii/` 도 생성.
+평가는 같은 `--decoder`/`--encoder`/`--exp_setting`/`--fold_idx` 로 `test.py` 를 돌린다.
 
-### 2.2 5-Fold CV
+## 2. 표준 평가 명령
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 python test.py \
@@ -70,13 +56,15 @@ CUDA_VISIBLE_DEVICES=0 python test.py \
 
 - 평가 셋 = `fold{fold_idx}.txt` (= 학습 때의 validation fold). hold-out test 셋은 없음.
 - `--root_path_5fold` / `--list_dir_5fold` / `--hu_stats_path` 기본값 사용 (보통 생략).
+- `--exp_setting`, `--max_epochs`, `--batch_size`, `--base_lr`, `--img_size` 가 학습 때와 동일해야 체크포인트 경로가 매칭된다. 불일치 시 `FileNotFoundError` 발생.
+- 결과는 `./test_log/{NetClass}_{encoder}/COCA_512/{exp_setting}/epo300_bs16_lr1e-05/results.txt` 에 누적된다. `is_savenii` 가 켜져 있으면 같은 디렉터리에 `results_nii/` 도 생성.
 - 5 fold 결과를 모두 모아 `aggregate_5fold_results.py --exp_template ...` 로 mean ± std 보고 (§8 참고).
 
 ## 3. exp_setting 명명 규약
 
 5-fold CV 패턴 (`TODO.md` §2 Phase 4). 단일 hold-out 시기의 `default` / `kmu_chest` 등은 디스크에 보존된 과거 디렉터리.
 
-**Main 그리드 — 이 브랜치 실행 가능 8 config (4 encoder × 2 decoder, 전부 +MSFFM `_sa`):** 명명 규약 `msffm_{encoder}_{decoder}_fold{k}_seed42` (encoder 라벨은 `_sa` 생략).
+**SMP 그리드 — 8 config (4 encoder × 2 decoder, 전부 +MSFFM `_sa`):** 명명 규약 `msffm_{encoder}_{decoder}_fold{k}_seed42` (encoder 라벨은 `_sa` 생략).
 
 | encoder (argparse 키) | decoder=unet | decoder=segformer |
 |---|---|---|
@@ -85,9 +73,9 @@ CUDA_VISIBLE_DEVICES=0 python test.py \
 | `efficientnet-b4_sa` | `msffm_efficientnet-b4_unet_fold{0..4}_seed42` | `msffm_efficientnet-b4_segformer_fold{0..4}_seed42` |
 | `mit_b2_sa` | `msffm_mit_b2_unet_fold{0..4}_seed42` | `msffm_mit_b2_segformer_fold{0..4}_seed42` |
 
-→ main = **8 config × 5 fold = 40 trainings**. single_slice baseline 명명은 `baseline_{encoder}_{decoder}_fold{k}_seed42` (encoder 는 `_sa` 제거).
+→ 8 config × 5 fold = 40 trainings. single-slice baseline(비-`_sa` encoder, 예: `resnet50`)도 같은 진입점에서 `--encoder` 만 바꿔 바로 돈다 — 명명은 `baseline_{encoder}_{decoder}_fold{k}_seed42` (encoder 는 `_sa` 제거). 동결 `single_slice` 브랜치는 통합 전 결과 재현 전용으로만 남는다.
 
-**PVTv2-b2 backbone 페어 (`EMCAD-SA` / `EMCAD` 브랜치)는 본 표에 없다** — 모델 클래스(`EMCAD_SA_Net` / `EMCADNet`) 와 entrypoint 가 SMP 그리드와 달라 같은 축에 못 들어간다. 명명은 `emcad_sa_fold{k}_seed42` / `emcad_fold{k}_seed42`, 운영은 해당 브랜치 checkout 후 진행. branch map: `CLAUDE.md` §10, 페어 진행 상태: `TODO.md` §2 Phase 4.3.
+**PVTv2-b2 backbone 페어(EMCAD / EMCAD+MSFFM)** 도 같은 진입점에서 `--decoder emcad`/`emcad_sa --encoder pvt_v2_b2` 로 바로 돈다 (모델 클래스는 `EMCADNet`/`EMCAD_SA_Net`). 명명은 `emcad_fold{k}_seed42` / `emcad_sa_fold{k}_seed42`. 동결 `EMCAD`/`EMCAD-SA` 브랜치는 통합 전 결과 재현 전용으로만 남는다. branch map: `CLAUDE.md` §10.
 
 ## 4. 파인튜닝 워크플로 (`--enable_finetuning`)
 
@@ -100,7 +88,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
 ```
 
 - `--exp_setting` 의 디렉터리에서 `*best_model.pth` 를 찾아 로드한다 (없으면 `FileNotFoundError`).
-- `segmentation_head.*` 키만 체크포인트에서 제거된 뒤 `load_state_dict(..., strict=False)` 호출 → 클래스 수가 달라져도 인코더·디코더는 그대로 활용된다.
+- `head_prefix` 로 시작하는 키만 체크포인트에서 제거된 뒤 `load_state_dict(..., strict=False)` 호출 → 클래스 수가 달라져도 인코더·디코더는 그대로 활용된다. `head_prefix` 는 decoder 계열에서 유도된다 — `unet`/`segformer` 는 `segmentation_head.`, `emcad`/`emcad_sa` 는 `out_head`(deep supervision 출력 헤드 `out_head1~4`).
 - 새 학습 결과는 `--finetune_exp_setting` 디렉터리에 저장. 원본 best 는 보존된다.
 - 학습 자체는 동일한 trainer 가 처음부터 돌리는 형태이므로 LR 스케줄이 리셋된다. 짧은 fine-tune 이 필요하면 `--max_epochs` 도 함께 줄일 것.
 
