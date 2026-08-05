@@ -314,6 +314,9 @@ class PyramidVisionTransformerImpr(nn.Module):
         # _init_weights 적용 뒤에 만들어야 한다 — 원본이 그 순서라 NonLocalBlock 은 conv 기본 init 을 유지한다.
         self.use_msffm = use_msffm
         if use_msffm:
+            # NonLocalBlock 채널이 320/512 하드코딩이라 백본을 여기서 막는다. 통과시키면 b0(160/256) 는
+            # 생성은 되고 forward 에서야 죽는다.
+            assert embed_dims[2:] == [320, 512], f'MSFFM 은 stage3/4 = 320/512 백본만 지원: {embed_dims}'
             self.num_heads_msffm = 8
             self.cross_attention_prev_3 = NonLocalBlock(in_channels=320, inter_channels=160, num_heads=self.num_heads_msffm,
                                                             window_size=16, num_global_tokens=1)
