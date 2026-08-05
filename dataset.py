@@ -8,7 +8,7 @@ from scipy import ndimage
 from scipy.ndimage import zoom
 
 def random_rot_flip(image, label):
-    # image: (H,W,3), label:(H,W)
+    # image: (H,W,C), label:(H,W)
     k = np.random.randint(0, 4)
     image = np.rot90(image, k, axes=(0,1))
     label = np.rot90(label, k, axes=(0,1))
@@ -20,7 +20,7 @@ def random_rot_flip(image, label):
     return image, label
 
 def random_rotate(image, label):
-    # image: (H,W,3), label: (H,W)
+    # image: (H,W,C), label: (H,W)
     angle = np.random.randint(-20, 20)
     image = ndimage.rotate(image, angle, axes=(0,1), order=0, reshape=False)
     label = ndimage.rotate(label, angle, axes=(0,1), order=0, reshape=False)
@@ -57,7 +57,7 @@ class Resize:
         self.output_size = output_size
 
     def __call__(self, sample):
-        # image:(H,W,3), label:(H,W)
+        # image:(H,W,C), label:(H,W)
         image, label = sample['image'], sample['label']
         x, y = image.shape[0], image.shape[1]
         
@@ -71,11 +71,11 @@ class Resize:
 
 class ToTensor:
     def __call__(self, sample):
-        # image: (H,W,3) -> (3,H,W)
+        # image: (H,W,C) -> (C,H,W)
         image, label = sample['image'], sample['label']
         
         image = torch.from_numpy(image.astype(np.float32))
-        image = image.permute(2,0,1)  # (3,H,W)
+        image = image.permute(2,0,1)  # (C,H,W)
         label = torch.from_numpy(label.astype(np.int64))
         
         sample['image'], sample['label'] = image, label
