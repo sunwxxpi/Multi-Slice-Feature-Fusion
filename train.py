@@ -1,4 +1,5 @@
 import os
+import re
 import random
 import argparse
 import numpy as np
@@ -16,22 +17,22 @@ parser.add_argument('--max_epochs', type=int, default=300, help='maximum epoch n
 parser.add_argument('--batch_size', type=int, default=16, help='batch_size per gpu')
 parser.add_argument('--base_lr', type=float,  default=0.00001, help='segmentation network learning rate')
 parser.add_argument('--img_size', type=int, default=512, help='input patch size of network input')
-parser.add_argument('--encoder', type=str, default='resnet50_sa',
-                    help='encoder 이름. --decoder 에 따라 허용 목록이 다르다',
+parser.add_argument('--encoder', type=str, default='resnet50_sa', help='encoder 이름. --decoder 에 따라 허용 목록이 다르다',
                     choices=sorted(set(SMP_ENCODERS + EMCAD_ENCODERS)))
-parser.add_argument('--decoder', type=str, default='unet',
-                    choices=['unet', 'segformer', 'emcad', 'emcad_sa'])
-parser.add_argument('--exp_setting', type=str,  default='default', help='description of experiment setting')
-parser.add_argument('--finetune_exp_setting', type=str, default='', help='description of experiment setting for finetuning')
-parser.add_argument('--enable_finetuning', action="store_true", help='Path to model checkpoint for finetuning')
+parser.add_argument('--decoder', type=str, default='unet', choices=['unet', 'segformer', 'emcad', 'emcad_sa'])
+parser.add_argument('--exp_setting', type=str,  default='default', help='이 실행의 결과가 저장될 exp_setting 이름')
+parser.add_argument('--init_from', type=str, default='',
+                    help='가중치를 가져올 exp_setting. 지정하면 파인튜닝이 된다 '
+                         '(epo/bs/lr 이 같은 디렉터리에서 찾는다)')
 parser.add_argument('--deterministic', type=int, default=1, help='whether use deterministic training')
 parser.add_argument('--seed', type=int, default=42, help='random seed')
 # 5-fold CV 옵션 (기본 비활성, 단일 hold-out 경로와 하위 호환)
 parser.add_argument('--use_5fold_cv', action="store_true", help='use 433-case stratified 5-fold CV')
 parser.add_argument('--fold_idx', type=int, default=0, help='validation fold index (0..4)')
-parser.add_argument('--root_path_5fold', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold', help='5-fold per-case volume root (images/, labels/)')
-parser.add_argument('--list_dir_5fold', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold list dir (fold0.txt..fold4.txt)')
-parser.add_argument('--hu_stats_path', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU normalization stats json')
+# 기본값은 cwd 기준 상대경로다 — 체크포인트 경로(`./model/`)와 같은 기준이라 저장소 루트에서 실행해야 한다.
+parser.add_argument('--root_path_5fold', type=str, default='./data/datasets/COCA/COCA_3frames_5fold', help='5-fold per-case volume root (images/, labels/)')
+parser.add_argument('--list_dir_5fold', type=str, default='./data/datasets/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold list dir (fold0.txt..fold4.txt)')
+parser.add_argument('--hu_stats_path', type=str, default='./data/datasets/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU normalization stats json')
 parser.add_argument('--early_stopping_patience', type=int, default=50, help='stop if val_loss not improved for N epochs (0=disabled)')
 parser.add_argument('--early_stopping_min_delta', type=float, default=0.0, help='min val_loss improvement to reset patience')
 # EMCAD 디코더 전용 (--decoder emcad/emcad_sa 에서만 사용)
@@ -59,6 +60,12 @@ if args.encoder not in allowed_encoders(args.decoder):
 if f"fold{args.fold_idx}" not in args.exp_setting:
     parser.error(f"--fold_idx={args.fold_idx} 인데 --exp_setting='{args.exp_setting}' 에 "
                  f"'fold{args.fold_idx}' 가 없음. 체크포인트 경로에 fold 가 반영되지 않아 덮어쓸 위험.")
+
+# 다른 fold 의 체크포인트에서 출발하면 그 가중치는 지금의 val fold 를 이미 학습에 썼다 —
+# 검증이 오염된다. fold 토큰이 없는 이름(다른 코호트)은 대조할 fold 가 없어 통과시킨다.
+if args.init_from and re.search(r'fold\d+', args.init_from) and f"fold{args.fold_idx}" not in args.init_from:
+    parser.error(f"--fold_idx={args.fold_idx} 인데 --init_from='{args.init_from}' 는 다른 fold 의 "
+                 f"체크포인트다. 출발 가중치가 fold{args.fold_idx} 케이스를 이미 학습해 검증이 오염된다.")
 
 args.num_slices = derive_num_slices(args.decoder, args.encoder)
 
@@ -120,19 +127,24 @@ if __name__ == "__main__":
     snapshot_path = os.path.join("./model/", exp_path, parameter_path)
     os.makedirs(snapshot_path, exist_ok=True)
     
-    # Finetuning: load pretrained checkpoint if provided
-    if args.enable_finetuning:
-        files = os.listdir(snapshot_path)
+    # 파인튜닝: --init_from 의 best 체크포인트에서 출발한다. 저장은 위 snapshot_path 그대로라
+    # 원본 체크포인트는 건드리지 않는다.
+    if args.init_from:
+        init_exp_path = os.path.join(net.__class__.__name__ + '_' + args.encoder, args.dataset + '_' + str(args.img_size), args.init_from)
+        init_path = os.path.join("./model/", init_exp_path, parameter_path)
+        if not os.path.isdir(init_path):
+            raise FileNotFoundError("--init_from 경로가 없음: " + init_path)
+
         best_model_file = None
-        for f in files:
+        for f in os.listdir(init_path):
             name, ext = os.path.splitext(f)
             if name.endswith("best_model"):
                 best_model_file = f
                 break
         if best_model_file is None:
-            raise FileNotFoundError("No checkpoint ending with 'best_model' found in " + snapshot_path)
-        
-        checkpoint_path = os.path.join(snapshot_path, best_model_file)
+            raise FileNotFoundError("No checkpoint ending with 'best_model' found in " + init_path)
+
+        checkpoint_path = os.path.join(init_path, best_model_file)
         checkpoint = torch.load(checkpoint_path)
         # Remove segmentation head weights to avoid size mismatch (checkpoint was trained for 5 classes)
         # head 키 이름은 decoder 계열마다 다르다 (SMP=segmentation_head. / EMCAD=out_head1~4).
@@ -141,12 +153,7 @@ if __name__ == "__main__":
             if key.startswith(head_prefix):
                 del checkpoint[key]
         net.load_state_dict(checkpoint, strict=False)
-        print(f"Loaded checkpoint from {best_model_file}")
-        
-        finetune_exp_path = os.path.join(net.__class__.__name__ + '_' + args.encoder, args.dataset + '_' + str(args.img_size), args.finetune_exp_setting)
-        finetune_snapshot_path = os.path.join("./model/", finetune_exp_path, parameter_path)
-        snapshot_path = finetune_snapshot_path
-        os.makedirs(snapshot_path, exist_ok=True)
-        
+        print(f"Loaded checkpoint from {checkpoint_path}")
+
     trainer = {'COCA': trainer_coca}
     trainer[args.dataset](args, net, snapshot_path)
