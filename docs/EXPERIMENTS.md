@@ -16,7 +16,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py --use_5fold_cv --fold_idx 0 \
 - `--fold_idx` 를 0~4 로 바꿔가며 총 5회 학습. exp_setting 의 `fold{K}` 부분도 함께 바꿔야 함 — 불일치 시 `parser.error(...)` 로 즉시 종료된다 (체크포인트 경로가 fold 를 반영하지 않아 다른 fold 를 덮어쓰는 사고를 막기 위함).
 - `--root_path_5fold` (기본 `COCA_3frames_5fold`), `--list_dir_5fold`, `--hu_stats_path` 는 모두 기본값이 박혀 있어 보통 생략 가능. `--use_5fold_cv` 는 하위 호환용 플래그로, 값과 무관하게 항상 이 경로를 쓴다(`CLAUDE.md` §3).
 - `--max_epochs 300` 은 상한선. early stopping (patience=50) 이 fold 별로 실제 종료 epoch 을 결정.
-- 자세한 결정 배경, 분할 키, 정규화 상수 정책은 `TODO.md` §1.
 
 ### 1.1 4 구성 예시 (fold0)
 
@@ -62,7 +61,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py \
 
 ## 3. exp_setting 명명 규약
 
-5-fold CV 패턴 (`TODO.md` §2 Phase 4). 단일 hold-out 시기의 `default` / `kmu_chest` 등은 디스크에 보존된 과거 디렉터리.
+5-fold CV 패턴. 단일 hold-out 시기의 `default` / `kmu_chest` 등은 디스크에 보존된 과거 디렉터리.
 
 **SMP 그리드 — 8 config (4 encoder × 2 decoder, 전부 +MSFFM `_sa`):** 명명 규약 `msffm_{encoder}_{decoder}_fold{k}_seed42` (encoder 라벨은 `_sa` 생략).
 
@@ -94,7 +93,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
 
 ## 5. GPU 핀 — 한 학습 = 한 GPU (중요)
 
-**한 학습(run)은 반드시 단일 GPU 로만 돌린다.** `trainer.py:77-78` 이 `torch.cuda.device_count() > 1` 이면 자동으로 `nn.DataParallel` 로 보이는 GPU 를 전부 잡으므로, 매 실행에 **`CUDA_VISIBLE_DEVICES=0` 또는 `=1` 을 명시**해 GPU 를 1개로 핀할 것 (`device_count()==1` 이 되어 DataParallel 미적용). 두 GPU 가 모두 비어 있으면 `=0`/`=1` 로 **서로 다른 실험을 GPU 별로 동시에** 돌려 처리량을 2배로 올릴 수 있다 (예: fold0→GPU0, fold1→GPU1). main 만 40 trainings 규모라 이 병렬화가 전체 소요 시간을 크게 줄인다.
+**한 학습(run)은 반드시 단일 GPU 로만 돌린다.** `trainer.py:77-78` 이 `torch.cuda.device_count() > 1` 이면 자동으로 `nn.DataParallel` 로 보이는 GPU 를 전부 잡으므로, 매 실행에 **`CUDA_VISIBLE_DEVICES=0` 또는 `=1` 을 명시**해 GPU 를 1개로 핀할 것 (`device_count()==1` 이 되어 DataParallel 미적용). 두 GPU 가 모두 비어 있으면 `=0`/`=1` 로 **서로 다른 실험을 GPU 별로 동시에** 돌려 처리량을 2배로 올릴 수 있다 (예: fold0→GPU0, fold1→GPU1). SMP 그리드만 40 trainings 규모라 이 병렬화가 전체 소요 시간을 크게 줄인다.
 
 저장 시에는 (DataParallel 인 경우) `model.module.state_dict()` 로 복원되므로 평가 단계의 단일 GPU 로딩이 호환된다. **`DistributedDataParallel` 은 지원하지 않는다** — 도입하려면 trainer 전체를 다시 써야 한다.
 
@@ -131,19 +130,17 @@ Overall 3D Metrics Across All Cases:
 
 ## 8. 5-Fold CV 워크플로
 
-`TODO.md` §2 Phase 4 의 운영 측면을 압축한다.
-
 ### 8.1 실행 순서 정책
 
-1. **Phase 1~3 완료 확인** — `COCA_3frames_5fold/`(images/labels/lists/hu_stats) 산출 + 코드 수정(`--use_5fold_cv` 분기, `dataset.py` 의 5-fold 로더) 모두 끝나 있어야 함 (`TODO.md` §2~§3).
+1. **Phase 1~3 완료 확인** — `COCA_3frames_5fold/`(images/labels/lists/hu_stats) 산출 + 코드 수정(`--use_5fold_cv` 분기, `dataset.py` 의 5-fold 로더) 모두 끝나 있어야 함.
 2. **Smoke test** — `--fold_idx 0 --max_epochs 2 --early_stopping_patience 0` 로 짧게 1회 학습+평가가 종단간 도는지 확인 (체크포인트 저장 + `results.txt` 생성).
-3. **Main 5-fold 그리드** — 8 config(4 enc × 2 dec) × fold0~4 = 40 trainings → 평가 40 → config별 `aggregate_5fold_results.py`. 두 GPU 에 4 config 씩 나눠 병렬(§8.2).
+3. **SMP 5-fold 그리드** — 8 config(4 enc × 2 dec) × fold0~4 = 40 trainings → 평가 40 → config별 `aggregate_5fold_results.py`. 두 GPU 에 4 config 씩 나눠 병렬(§8.2).
 
 ### 8.2 일괄 실행 스크립트 (예시)
 
 > **GPU 규칙(필수, §5):** 한 학습은 GPU 1개로만. `CUDA_VISIBLE_DEVICES` 를 **항상 명시** — 미지정 시 두 GPU 를 DataParallel 로 잡는다.
 
-main 8 config 를 두 GPU 에 4개씩 나눠, 각 GPU 가 자기 몫 config 들의 fold0~4 를 **연속으로**(wave 장벽 없이) 돌린다 — GPU idle 이 거의 없다.
+SMP 8 config 를 두 GPU 에 4개씩 나눠, 각 GPU 가 자기 몫 config 들의 fold0~4 를 **연속으로**(wave 장벽 없이) 돌린다 — GPU idle 이 거의 없다.
 
 ```bash
 # config = "encoder decoder". encoder 는 argparse 의 _sa 키.

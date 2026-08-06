@@ -5,29 +5,35 @@
 ## 1. 전체 데이터 흐름
 
 ```
-NPZ (image: HxWx3, label: HxW)        ← 단일 hold-out
-   └─► COCA_dataset
-per-case .npy (D,H,W) memmap          ← 5-fold CV (--use_5fold_cv)
-   └─► COCAVolumeDataset (vol[n:n+3] → (H,W,3), vol[n+1] center label)
+per-case .npy (D,H,W) memmap
+   └─► COCAVolumeDataset (num_slices=3 → vol[n:n+3]→(H,W,3) prev/center/next, num_slices=1 → center (H,W,1); vol[n+1] center label)
          ├─ ct_normalization  (clip + z-score)
          ├─ RandomAugmentation (rot90 / flip / rotate)
          ├─ Resize → 512x512
-         └─ ToTensor → (3, H, W), int64 label
+         └─ ToTensor → (C, H, W), int64 label
             │
             ▼
-   smp.Unet / smp.Segformer (in_channels=1, classes=5)
-            │
-            ▼
-   *_sa Encoder  ──► features[0..5]  (stage0~stage5)
-            │            stage3·stage4 에 MSFFM 통합
-            ▼
-   Decoder (UnetDecoder / SegformerDecoder)
-            │
-            ▼
-   SegmentationHead  → logits (B, 5, H, W)
+   --decoder 가 4가지 모델 경로 중 하나를 선택 (`utils.py:derive_num_slices` 가 C 를 결정)
+
+   --decoder unet/segformer                     --decoder emcad/emcad_sa
+   ────────────────────────                     ─────────────────────────
+   smp.Unet / smp.Segformer                     EMCADNet / EMCAD_SA_Net
+      │ in_channels=1, classes=5                    │ encoder=pvt_v2_bN
+      ▼                                             ▼
+   *_sa Encoder ──► features[0..5]               pvt_v2 backbone (use_msffm=False/True)
+      │ stage3·4 에 MSFFM 통합(_sa 계열만)          │ stage3·4 에 MSFFM 통합(emcad_sa 만)
+      ▼                                             ▼
+   UnetDecoder / SegformerDecoder                EMCAD 디코더 (networks/emcad/decoders.py)
+      │                                             │
+      ▼                                             ▼
+   SegmentationHead                              out_head1~4 (deep supervision, 최종단이 예측에 쓰임)
+      │                                             │
+      └───────────────────┬─────────────────────────┘
+                           ▼
+               logits (B, 5, H, W)
 ```
 
-> 두 dataset 클래스 모두 같은 transform 파이프라인을 거쳐 `(3, H, W)` 채널 입력을 만든다 — encoder 이후 흐름은 동일. 5-fold 데이터 자산·정규화 상수는 `docs/DATA.md §9`.
+> `COCAVolumeDataset` 하나가 모든 `--decoder` 경로의 입력을 만든다 — encoder 이후 흐름만 `--decoder` 별로 갈린다. 5-fold 데이터 자산·정규화 상수는 `docs/DATA.md §9`.
 
 ## 2. MSFFM 핵심 식 (원고 §2.2)
 
@@ -45,7 +51,7 @@ Z_final = Z_fused ⊕ X_ref                            # residual
 
 ## 3. 코드와의 매핑
 
-MSFFM 은 코드베이스에 두 embodiment 로 존재한다 — SMP 인코더의 `*_sa` 계열(§3.1~3.3)과 EMCAD 백본(§3.4). 둘 다 stage 3/4 에 `NonLocalBlock` 3개(prev/self/next) + `compress` conv(1×1) + residual 구조로 동일하다.
+MSFFM 은 코드베이스에 두 가지 형태로 존재한다 — SMP 인코더의 `*_sa` 계열(§3.1~3.3)과 EMCAD 백본(§3.4). 둘 다 stage 3/4 에 `NonLocalBlock` 3개(prev/self/next) + `compress` conv(1×1) + residual 구조로 동일하다.
 
 ### 3.1 활성 구현 (`segmentation_models_pytorch/encoders/resnet_sa.py`)
 
@@ -104,10 +110,10 @@ train.py: smp.Unet(encoder_name="resnet50_sa", ...)
 
 - `tester.py:get_attn_hook` 가 `(z, attention_weights)` 튜플의 두 번째 원소를 `attn_dict` 에 저장한다. 평상시 forward 는 fused SDPA 경로(`attention_weights=None`) — 시각화하려면 대상 `NonLocalBlock` 의 `return_attention=True` 로 명시 계산 경로를 켜야 가중치가 나온다.
 - **사용법: `test.py --save_attention` 단일 플래그.** `test.py` 가 자동으로
-  1. `net.encoder.named_modules()` 순회 → `return_attention` 속성 보유 모듈(모든 `NonLocalBlock`) 자동 검색
+  1. `net.named_modules()` 로 모델 트리 전체를 순회(`net.encoder`(SMP) 든 `net.backbone`(EMCAD) 든 위치 무관하게 잡는다) → `return_attention` 속성 보유 모듈(모든 `NonLocalBlock`) 자동 검색
   2. 각 모듈의 `return_attention=True` 토글
   3. 모듈명(`cross_attention_prev_3` 등)을 `visualize_attention` 이 기대하는 키 `stage{N}_{prev|self|next}` 로 정규화한 뒤 hook 등록.
-  를 수행. 백본 무관 동작 (resnet50_sa / densenet201_sa / efficientnet-b4_sa / mit_b2_sa 공통).
+  를 수행. 백본 무관 동작 (resnet50_sa / densenet201_sa / efficientnet-b4_sa / mit_b2_sa / emcad_sa 공통).
 - `tester.py:inference` 는 `args.save_attention` 가 True 일 때만 `visualize_attention(...)` 호출 + `attn_vis_dir` mkdir 수행. OFF 시 빈 디렉터리 생성도 없음.
 - 저장 위치: `test_save_path/attention_vis/` (= `--is_savenii` 켜진 경우) 또는 fallback `./test_log/attention_vis_fallback/{exp_setting}/` (exp_setting 포함하여 run 간 섞임 방지).
 - 메모리 안전: 매 slice 시작 시 `attn_dict.clear()` — 시각화 OFF + hook ON 같은 잘못된 조합에서도 누수 없음.

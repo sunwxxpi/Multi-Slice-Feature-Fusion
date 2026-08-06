@@ -66,7 +66,7 @@ ct_normalization(image, lower=-2.0, upper=1521.0, mean=355.3804..., std=282.9181
 - `np.clip` 으로 HU 범위 제한 후 z-score.
 - 상수는 COCA train set 의 분포에서 도출. 다른 코호트(KMU 등) 에 적용 시 반드시 재산정.
 - 이전 커밋 `ace4439` 에서 갱신된 값이며, 더 오래된 주석(`lower=1017, upper=1801, ...`) 은 옛 단위 계의 값이므로 사용 금지 — 그대로 두되 켜지 말 것.
-- **5-fold CV 는 별도 상수를 쓴다 (`TODO.md` §1.5):** 위 기본 인자(train 300-case)는 **변경하지 않고**, 433 case 전체 풀로 산출한 `hu_stats_433.json` 을 `load_hu_stats` 로 읽어 `COCAVolumeDataset` 이 `ct_normalization(image, **hu)` 로 명시 전달한다. 실제 산출값: `lower=15.0, upper=1577.0, mean=773.55, std=399.24` (`lower/upper` = 0.5% / 99.5% 분위수, `mean/std` = clip 후). 모든 fold 가 같은 4개 상수 공유 (fold 별 재산정 안 함). 심장 게이트 CT 라 FOV 가 좁아 폐/공기(<-300HU) 비율 0.2% → 0.5% 분위수가 15 로 높고 median≈967. 단일 hold-out 의 mean=355 와 정규화 자체가 다르므로 두 체제의 절대 메트릭 직접 비교 금지.
+- **5-fold CV 는 별도 상수를 쓴다:** 위 기본 인자(train 300-case)는 **변경하지 않고**, 433 case 전체 풀로 산출한 `hu_stats_433.json` 을 `load_hu_stats` 로 읽어 `COCAVolumeDataset` 이 `ct_normalization(image, **hu)` 로 명시 전달한다. 실제 산출값: `lower=15.0, upper=1577.0, mean=773.55, std=399.24` (`lower/upper` = 0.5% / 99.5% 분위수, `mean/std` = clip 후). 모든 fold 가 같은 4개 상수 공유 (fold 별 재산정 안 함). 심장 게이트 CT 라 FOV 가 좁아 폐/공기(<-300HU) 비율 0.2% → 0.5% 분위수가 15 로 높고 median≈967. 단일 hold-out 의 mean=355 와 정규화 자체가 다르므로 두 체제의 절대 메트릭 직접 비교 금지.
 
 ## 5. Augmentation 정책
 
@@ -98,14 +98,14 @@ DataLoader(db_train, batch_size=16, shuffle=False, num_workers=8,
 ## 8. 새 데이터셋 추가 시 체크리스트
 
 - [ ] `(H, W, 3)` 형태로 prev/center/next 가 미리 묶인 NPZ 를 생성.
-- [ ] `list_dir/train.txt`, `test.txt` 갱신. 한 줄당 sample_name (확장자 없음).
+- [ ] `lists_COCA_5fold/fold0.txt`~`fold4.txt` 형식으로 case 단위 분할 리스트 갱신. 한 줄당 `case{gidx}_slice{n}` (§9.2 포맷).
 - [ ] `ct_normalization` 의 lower/upper/mean/std 를 새 데이터로 재계산해 적용.
 - [ ] `--num_classes`, `DiceLoss` 의 배경 제외 가정, `class_dice_means` 의 인덱싱을 함께 점검.
 - [ ] `tester.py` 의 spacing 상수와 `parse_case_and_slice_id` 의 파싱 규칙 호환성 확인.
 
 ## 9. 5-Fold Cross-Validation 자산
 
-본 절은 `--use_5fold_cv` 모드에서 추가로 필요한 데이터 자산의 포맷을 정리한다. 결정 배경과 생성 파이프라인 전체는 `TODO.md` §1, §2 참고.
+본 절은 `--use_5fold_cv` 모드에서 추가로 필요한 데이터 자산의 포맷을 정리한다.
 
 모든 자산은 `Dataset001_COCA` 원본에서 `build_5fold_dataset.py` 가 1회 생성한다 (rebuild). case_id = 원본 nnUNet **전역 인덱스** (`COCA_Tr_<gidx>_...`→`case{gidx:04d}`, train 0~313; `COCA_Val_<gidx>_...`, test 314~450). 결손 번호는 제외된 18명. → 433 unique case.
 
