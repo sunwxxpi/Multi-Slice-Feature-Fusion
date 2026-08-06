@@ -16,7 +16,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py --use_5fold_cv --fold_idx 0 \
 - `--fold_idx` 를 0~4 로 바꿔가며 총 5회 학습. exp_setting 의 `fold{K}` 부분도 함께 바꿔야 함 — 불일치 시 `parser.error(...)` 로 즉시 종료된다 (체크포인트 경로가 fold 를 반영하지 않아 다른 fold 를 덮어쓰는 사고를 막기 위함).
 - `--root_path_5fold` (기본 `COCA_3frames_5fold`), `--list_dir_5fold`, `--hu_stats_path` 는 모두 기본값이 박혀 있어 보통 생략 가능. `--use_5fold_cv` 는 하위 호환용 플래그로, 값과 무관하게 항상 이 경로를 쓴다(`CLAUDE.md` §3).
 - `--max_epochs 300` 은 상한선. early stopping (patience=50) 이 fold 별로 실제 종료 epoch 을 결정.
-- 자세한 결정 배경, 분할 키, 정규화 상수 정책은 `docs/FIVE_FOLD_CV.md` §1.
 
 ### 1.1 4 구성 예시 (fold0)
 
@@ -62,7 +61,7 @@ CUDA_VISIBLE_DEVICES=0 python test.py \
 
 ## 3. exp_setting 명명 규약
 
-5-fold CV 패턴 (`docs/FIVE_FOLD_CV.md` §2 Phase 4). 단일 hold-out 시기의 `default` / `kmu_chest` 등은 디스크에 보존된 과거 디렉터리.
+5-fold CV 패턴. 단일 hold-out 시기의 `default` / `kmu_chest` 등은 디스크에 보존된 과거 디렉터리.
 
 **SMP 그리드 — 8 config (4 encoder × 2 decoder, 전부 +MSFFM `_sa`):** 명명 규약 `msffm_{encoder}_{decoder}_fold{k}_seed42` (encoder 라벨은 `_sa` 생략).
 
@@ -131,11 +130,9 @@ Overall 3D Metrics Across All Cases:
 
 ## 8. 5-Fold CV 워크플로
 
-`docs/FIVE_FOLD_CV.md` §2 Phase 4 의 운영 측면을 압축한다.
-
 ### 8.1 실행 순서 정책
 
-1. **Phase 1~3 완료 확인** — `COCA_3frames_5fold/`(images/labels/lists/hu_stats) 산출 + `dataset.py` 의 5-fold 로더 모두 끝나 있어야 함. `--use_5fold_cv` 는 하위 호환용으로 파싱만 되고 읽히지는 않는다 — 5-fold 경로는 항상 무조건 실행된다 (`docs/FIVE_FOLD_CV.md` §2~§3).
+1. **Phase 1~3 완료 확인** — `COCA_3frames_5fold/`(images/labels/lists/hu_stats) 산출 + `dataset.py` 의 5-fold 로더 모두 끝나 있어야 함. `--use_5fold_cv` 는 하위 호환용으로 파싱만 되고 읽히지는 않는다 — 5-fold 경로는 항상 무조건 실행된다.
 2. **Smoke test** — `--fold_idx 0 --max_epochs 2 --early_stopping_patience 0` 로 짧게 1회 학습+평가가 종단간 도는지 확인 (체크포인트 저장 + `results.txt` 생성).
 3. **SMP 5-fold 그리드** — 8 config(4 enc × 2 dec) × fold0~4 = 40 trainings → 평가 40 → config별 `aggregate_5fold_results.py`. 두 GPU 에 4 config 씩 나눠 병렬(§8.2).
 
