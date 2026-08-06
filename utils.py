@@ -3,6 +3,59 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim.lr_scheduler import _LRScheduler
 
+SMP_ENCODERS = ['resnet50', 'densenet201', 'efficientnet-b4', 'mit_b2',
+                'resnet50_sa', 'densenet201_sa', 'efficientnet-b4_sa', 'mit_b2_sa']
+
+# 이 목록이 실제 SMP 레지스트리와 어긋나면 argparse 는 통과시키고 모델 생성에서 죽는다.
+import segmentation_models_pytorch as smp
+for _name in SMP_ENCODERS:
+    assert _name in smp.encoders.encoders, f"SMP 레지스트리에 없음: {_name}"
+
+EMCAD_ENCODERS = ['pvt_v2_b0', 'pvt_v2_b1', 'pvt_v2_b2', 'pvt_v2_b3', 'pvt_v2_b4', 'pvt_v2_b5',
+                  'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152']
+# MSFFM 의 NonLocalBlock 채널이 320/512 로 고정이라 pvt_v2_b0(160/256) 은 지원하지 않는다.
+EMCAD_SA_ENCODERS = ['pvt_v2_b1', 'pvt_v2_b2', 'pvt_v2_b3', 'pvt_v2_b4', 'pvt_v2_b5']
+
+_ALLOWED_ENCODERS = {'unet': SMP_ENCODERS, 'segformer': SMP_ENCODERS,
+                     'emcad': EMCAD_ENCODERS, 'emcad_sa': EMCAD_SA_ENCODERS}
+
+def allowed_encoders(decoder):
+    """decoder 가 받는 encoder 이름 목록. argparse choices 는 합집합이라 조합 검증이 따로 필요하다."""
+    return _ALLOWED_ENCODERS[decoder]
+
+def derive_num_slices(decoder, encoder):
+    """입력 슬라이스 수. 별도 플래그 없이 모델 구성이 결정한다.
+
+    `_sa` encoder 와 emcad_sa 디코더는 prev/reference/next 3장, 나머지는 reference 1장을 받는다.
+    """
+    return 3 if (encoder.endswith('_sa') or decoder == 'emcad_sa') else 1
+
+def powerset(iterable):
+    # EMCAD deep supervision 의 'mutation' 전략용: 공집합 포함 출력 조합 전체를 순회한다.
+    # 통합 전 EMCAD 의 재귀 열거 순서를 그대로 유지한다 — itertools.combinations 의 크기순
+    # 열거는 조합 집합은 같지만 손실 누적 순서가 바뀌어 fp32 최말단 비트가 달라진다.
+    seq = tuple(iterable)
+    if len(seq) <= 1:
+        yield seq
+        yield ()
+    else:
+        for item in powerset(seq[1:]):
+            yield seq[:1] + item
+            yield item
+
+def build_supervision(strategy, n_outs):
+    """모델 출력 개수에 맞는 deep supervision 조합 목록을 만든다.
+
+    단일 출력 모델은 strategy 와 무관하게 최종단 하나만 쓴다 (기존 SMP 경로와 동일).
+    """
+    if n_outs == 1:
+        return [(-1,)]
+    if strategy == 'mutation':
+        return [s for s in powerset(range(n_outs)) if s]
+    if strategy == 'deep_supervision':
+        return [(i,) for i in range(n_outs)]
+    return [(-1,)]
+
 class PolyLRScheduler(_LRScheduler):
     def __init__(self, optimizer, initial_lr: float, max_steps: int, exponent: float = 0.9, current_step: int = None):
         self.optimizer = optimizer

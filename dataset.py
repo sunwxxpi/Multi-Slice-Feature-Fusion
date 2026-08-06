@@ -6,10 +6,9 @@ from torch.utils.data import Dataset
 from torch.utils.data.dataloader import default_collate
 from scipy import ndimage
 from scipy.ndimage import zoom
-from sklearn.model_selection import train_test_split
 
 def random_rot_flip(image, label):
-    # image: (H,W,3), label:(H,W)
+    # image: (H,W,C), label:(H,W)
     k = np.random.randint(0, 4)
     image = np.rot90(image, k, axes=(0,1))
     label = np.rot90(label, k, axes=(0,1))
@@ -21,7 +20,7 @@ def random_rot_flip(image, label):
     return image, label
 
 def random_rotate(image, label):
-    # image: (H,W,3), label: (H,W)
+    # image: (H,W,C), label: (H,W)
     angle = np.random.randint(-20, 20)
     image = ndimage.rotate(image, angle, axes=(0,1), order=0, reshape=False)
     label = ndimage.rotate(label, angle, axes=(0,1), order=0, reshape=False)
@@ -58,7 +57,7 @@ class Resize:
         self.output_size = output_size
 
     def __call__(self, sample):
-        # image:(H,W,3), label:(H,W)
+        # image:(H,W,C), label:(H,W)
         image, label = sample['image'], sample['label']
         x, y = image.shape[0], image.shape[1]
         
@@ -72,48 +71,14 @@ class Resize:
 
 class ToTensor:
     def __call__(self, sample):
-        # image: (H,W,3) -> (3,H,W)
+        # image: (H,W,C) -> (C,H,W)
         image, label = sample['image'], sample['label']
         
         image = torch.from_numpy(image.astype(np.float32))
-        image = image.permute(2,0,1)  # (3,H,W)
+        image = image.permute(2,0,1)  # (C,H,W)
         label = torch.from_numpy(label.astype(np.int64))
         
         sample['image'], sample['label'] = image, label
-
-        return sample
-
-class COCA_dataset(Dataset):
-    def __init__(self, base_dir, list_dir, split, transform=None, train_ratio=0.8):
-        self.transform = transform
-        self.split = split
-        self.data_dir = base_dir
-
-        if split in ["train", "val"]:
-            with open(os.path.join(list_dir, "train.txt"), 'r') as f:
-                full_sample_list = f.readlines()
-            train_samples, val_samples = train_test_split(full_sample_list, train_size=train_ratio, shuffle=False, random_state=42)
-            self.sample_list = train_samples if split == "train" else val_samples
-        else:
-            with open(os.path.join(list_dir, "test.txt"), 'r') as f:
-                self.sample_list = f.readlines()
-
-    def __len__(self):
-        return len(self.sample_list)
-
-    def __getitem__(self, idx):
-        sample_name = self.sample_list[idx].strip('\n')
-        data_path = os.path.join(self.data_dir, sample_name + '.npz')
-        data = np.load(data_path)
-        
-        # image: (H,W,3), label:(H,W)
-        image, label = data['image'], data['label']
-        image = ct_normalization(image)
-        
-        sample = {'image': image, 'label': label, 'case_name': sample_name}
-
-        if self.transform:
-            sample = self.transform(sample)
 
         return sample
 
@@ -129,15 +94,16 @@ class COCAVolumeDataset(Dataset):
 
     image_dir / label_dir 에는 case 당 (D,H,W) .npy 가 있고 memmap 으로 읽는다.
     sample_list 의 각 항목은 `case{gidx:04d}_slice{n:03d}` (n = triplet 시작 인덱스).
-    n 번째 sample 은 vol[n:n+3] 의 3채널(prev/center/next)과 center(n+1) 라벨을 반환한다.
-    기존 COCA_dataset 과 동일한 (H,W,3) image / (H,W) label 텐서를 만들어
-    ct_normalization·Resize·ToTensor 를 그대로 재사용한다.
+    num_slices=3 이면 vol[n:n+3] 을 (H,W,3) prev/center/next 로, 1 이면 center(n+1)
+    한 장을 (H,W,1) 로 반환한다. 어느 쪽이든 (H,W,C) 규약이라 Resize·ToTensor 를 공유한다.
     """
-    def __init__(self, image_dir, label_dir, sample_list, transform=None, hu_stats=None):
+    def __init__(self, image_dir, label_dir, sample_list, transform=None, hu_stats=None, num_slices=3):
+        assert num_slices in (1, 3), f"num_slices 는 1 또는 3 이어야 함 (받은 값: {num_slices})"
         self.image_dir = image_dir
         self.label_dir = label_dir
         self.transform = transform
         self.hu = hu_stats or {}
+        self.num_slices = num_slices
         self.sample_list = [s.strip() for s in sample_list if s.strip()]
         self._mm = {}  # cid -> (image_memmap, label_memmap), worker(fork) 별로 lazy 채움
 
@@ -159,8 +125,11 @@ class COCAVolumeDataset(Dataset):
         n = int(n)
 
         img_vol, lab_vol = self._get_volumes(cid)
-        # (3,H,W) 연속 평면 부분읽기 -> 쓰기 가능 사본 -> (H,W,3) prev/center/next
-        image = np.ascontiguousarray(np.transpose(np.array(img_vol[n:n + 3]), (1, 2, 0)))
+        # memmap 은 read-only 라 ct_normalization in-place 를 위해 사본이 필요하다.
+        # num_slices=1 이어도 (H,W,1) 로 맞춰 transform 을 3채널과 공유한다.
+        start = n if self.num_slices == 3 else n + 1
+        image = np.ascontiguousarray(
+            np.transpose(np.array(img_vol[start:start + self.num_slices]), (1, 2, 0)))
         label = np.array(lab_vol[n + 1])  # center 슬라이스
 
         image = ct_normalization(image, **self.hu)

@@ -5,29 +5,35 @@
 ## 1. 전체 데이터 흐름
 
 ```
-NPZ (image: HxWx3, label: HxW)        ← 단일 hold-out
-   └─► COCA_dataset
-per-case .npy (D,H,W) memmap          ← 5-fold CV (--use_5fold_cv)
-   └─► COCAVolumeDataset (vol[n:n+3] → (H,W,3), vol[n+1] center label)
+per-case .npy (D,H,W) memmap
+   └─► COCAVolumeDataset (num_slices=3 → vol[n:n+3]→(H,W,3) prev/center/next, num_slices=1 → center (H,W,1); vol[n+1] center label)
          ├─ ct_normalization  (clip + z-score)
          ├─ RandomAugmentation (rot90 / flip / rotate)
          ├─ Resize → 512x512
-         └─ ToTensor → (3, H, W), int64 label
+         └─ ToTensor → (C, H, W), int64 label
             │
             ▼
-   smp.Unet / smp.Segformer (in_channels=1, classes=5)
-            │
-            ▼
-   *_sa Encoder  ──► features[0..5]  (stage0~stage5)
-            │            stage3·stage4 에 MSFFM 통합
-            ▼
-   Decoder (UnetDecoder / SegformerDecoder)
-            │
-            ▼
-   SegmentationHead  → logits (B, 5, H, W)
+   --decoder 가 4가지 모델 경로 중 하나를 선택 (`utils.py:derive_num_slices` 가 C 를 결정)
+
+   --decoder unet/segformer                     --decoder emcad/emcad_sa
+   ────────────────────────                     ─────────────────────────
+   smp.Unet / smp.Segformer                     EMCADNet / EMCAD_SA_Net
+      │ in_channels=1, classes=5                    │ encoder=pvt_v2_bN
+      ▼                                             ▼
+   *_sa Encoder ──► features[0..5]               pvt_v2 backbone (use_msffm=False/True)
+      │ stage3·4 에 MSFFM 통합(_sa 계열만)          │ stage3·4 에 MSFFM 통합(emcad_sa 만)
+      ▼                                             ▼
+   UnetDecoder / SegformerDecoder                EMCAD 디코더 (networks/emcad/decoders.py)
+      │                                             │
+      ▼                                             ▼
+   SegmentationHead                              out_head1~4 (deep supervision, 최종단이 예측에 쓰임)
+      │                                             │
+      └───────────────────┬─────────────────────────┘
+                           ▼
+               logits (B, 5, H, W)
 ```
 
-> 두 dataset 클래스 모두 같은 transform 파이프라인을 거쳐 `(3, H, W)` 채널 입력을 만든다 — encoder 이후 흐름은 동일. 5-fold 데이터 자산·정규화 상수는 `docs/DATA.md §9`.
+> `COCAVolumeDataset` 하나가 모든 `--decoder` 경로의 입력을 만든다 — encoder 이후 흐름만 `--decoder` 별로 갈린다. 5-fold 데이터 자산·정규화 상수는 `docs/DATA.md §9`.
 
 ## 2. MSFFM 핵심 식 (원고 §2.2)
 
@@ -44,6 +50,8 @@ Z_final = Z_fused ⊕ X_ref                            # residual
 `SA`, `CA` 모두 1×1 conv 로 Q/K/V 를 만든 뒤 multi-head scaled dot-product attention 을 수행한다. cross-attention 은 `Q := W_q · X_ref`, `K, V := W_k/v · X_s` (s ∈ {prev,next}).
 
 ## 3. 코드와의 매핑
+
+MSFFM 은 코드베이스에 두 가지 형태로 존재한다 — SMP 인코더의 `*_sa` 계열(§3.1~3.3)과 EMCAD 백본(§3.4). 둘 다 stage 3/4 에 `NonLocalBlock` 3개(prev/self/next) + `compress` conv(1×1) + residual 구조로 동일하다.
 
 ### 3.1 활성 구현 (`segmentation_models_pytorch/encoders/resnet_sa.py`)
 
@@ -77,6 +85,13 @@ Z_final = Z_fused ⊕ X_ref                            # residual
 - `densenet_sa.py`, `efficientnet_sa.py`, `mix_transformer_sa.py` 모두 같은 패턴을 따른다.
 - 각 파일은 해당 백본의 원본(non-SA) 모듈을 `from .{backbone} import {Backbone}Encoder` 식으로 import 하지 않고, 백본별로 forward 흐름을 다시 작성해 두었다. 따라서 stage 단위 hook 위치 (어디서 MSFFM 을 끼울지) 가 백본마다 다를 수 있다 — 코드의 stage 주석을 직접 따라가야 한다.
 
+### 3.4 EMCAD 경로 (`networks/emcad/pvtv2.py`)
+
+- `PyramidVisionTransformerImpr.__init__` 이 `use_msffm=True` 일 때 stage3(채널 320)·stage4(채널 512) 에 각각 `cross_attention_{prev,self,next}_{3,4}` (`NonLocalBlock`, num_heads=8) 와 `compress_{3,4}` (1×1 conv) 를 만든다. `use_msffm=False` 면 아무것도 만들지 않는다 — SMP 쪽처럼 별도 클래스가 아니라 같은 백본 클래스의 생성자 플래그 분기다.
+- `EMCADNet` 은 `use_msffm=False` 로 고정, `EMCAD_SA_Net(EMCADNet)` 은 `__init__` 에서 `use_msffm=True` 를 강제한다. 두 클래스가 다르므로 체크포인트 경로(`net.__class__.__name__`)가 자동으로 갈린다.
+- `forward_features` 의 `_fuse(x_main, x_prev, x_next, prev_attn, self_attn, next_attn, compress)` 가 융합을 담당: `compress(cat(prev_attn(x_main,x_prev), self_attn(x_main,x_main), next_attn(x_main,x_next))) + x_main` — SMP 경로의 `compress(cat(...)) + x_main` 과 동일한 구조.
+- `pvt_v2_b0` 은 stage3/4 채널이 160/256 이라 `NonLocalBlock` 의 하드코딩 채널(320/512)과 안 맞아 `use_msffm=True` 를 assert 로 거부한다 — `--decoder emcad_sa` 의 encoder 허용 목록이 `pvt_v2_b1`~`b5` 인 이유(`utils.py:EMCAD_SA_ENCODERS`).
+
 ## 4. Encoder Registry 흐름
 
 ```
@@ -95,10 +110,10 @@ train.py: smp.Unet(encoder_name="resnet50_sa", ...)
 
 - `tester.py:get_attn_hook` 가 `(z, attention_weights)` 튜플의 두 번째 원소를 `attn_dict` 에 저장한다. 평상시 forward 는 fused SDPA 경로(`attention_weights=None`) — 시각화하려면 대상 `NonLocalBlock` 의 `return_attention=True` 로 명시 계산 경로를 켜야 가중치가 나온다.
 - **사용법: `test.py --save_attention` 단일 플래그.** `test.py` 가 자동으로
-  1. `net.encoder.named_modules()` 순회 → `return_attention` 속성 보유 모듈(모든 `NonLocalBlock`) 자동 검색
+  1. `net.named_modules()` 로 모델 트리 전체를 순회(`net.encoder`(SMP) 든 `net.backbone`(EMCAD) 든 위치 무관하게 잡는다) → `return_attention` 속성 보유 모듈(모든 `NonLocalBlock`) 자동 검색
   2. 각 모듈의 `return_attention=True` 토글
   3. 모듈명(`cross_attention_prev_3` 등)을 `visualize_attention` 이 기대하는 키 `stage{N}_{prev|self|next}` 로 정규화한 뒤 hook 등록.
-  를 수행. 백본 무관 동작 (resnet50_sa / densenet201_sa / efficientnet-b4_sa / mit_b2_sa 공통).
+  를 수행. hook 등록 자체(검색·토글·키 정규화)는 백본 무관하게 동작한다 (resnet50_sa / densenet201_sa / efficientnet-b4_sa / mit_b2_sa / emcad_sa 공통) — 하지만 그 뒤 렌더러(`visualize_attention`, `tester.py:235-249`)는 아니다. `resnet_sa`/`mix_transformer_sa`(및 `emcad_sa`)는 MSFFM 을 stage3/4(`cross_attention_*_3`/`_4`)에 붙이지만 `densenet_sa`/`efficientnet_sa`는 stage4/5(`_4`/`_5`)에 붙이므로, 정규화된 키가 후자에서는 `stage4_*`/`stage5_*` 로 나온다. 렌더러는 `stage3_keys`/`stage4_keys` 를 grid_count `[32, 16]` 으로 고정해 찾기 때문에, densenet201_sa/efficientnet-b4_sa 에서는 `stage3_keys` 조회가 항상 비어 그 행이 빈 채로 나오고 `stage4_keys` 조회는 실제로 32×32 해상도인 첫 MSFFM 스테이지를 16 그리드로 잘못 그린다. 이 렌더링 버그는 이 브랜치 이전부터 있던 것으로 여기서 고치지 않는다.
 - `tester.py:inference` 는 `args.save_attention` 가 True 일 때만 `visualize_attention(...)` 호출 + `attn_vis_dir` mkdir 수행. OFF 시 빈 디렉터리 생성도 없음.
 - 저장 위치: `test_save_path/attention_vis/` (= `--is_savenii` 켜진 경우) 또는 fallback `./test_log/attention_vis_fallback/{exp_setting}/` (exp_setting 포함하여 run 간 섞임 방지).
 - 메모리 안전: 매 slice 시작 시 `attn_dict.clear()` — 시각화 OFF + hook ON 같은 잘못된 조합에서도 누수 없음.

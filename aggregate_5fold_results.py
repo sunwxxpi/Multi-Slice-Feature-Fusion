@@ -9,6 +9,9 @@ fold 별 값 + mean±std 를 Markdown 표로 출력한다.
   python aggregate_5fold_results.py \
       --exp_template msffm_resnet50_unet_fold{fold}_seed42 \
       --encoder resnet50_sa --decoder unet
+  python aggregate_5fold_results.py \
+      --exp_template emcad_sa_fold{fold}_seed42 \
+      --encoder pvt_v2_b2 --decoder emcad_sa
 """
 import os
 import re
@@ -18,7 +21,8 @@ import argparse
 import numpy as np
 
 VNAMES = ["LCA", "LAD", "LCX", "RCA"]   # class 1..4
-NETCLASS = {"unet": "Unet", "segformer": "Segformer"}
+NETCLASS = {"unet": "Unet", "segformer": "Segformer",
+            "emcad": "EMCADNet", "emcad_sa": "EMCAD_SA_Net"}
 
 NUM = r"(nan|[-+]?\d*\.?\d+)"
 RE_CLASS = re.compile(rf"\[3D\] Class (\d+) - Dice: {NUM}, mIoU: {NUM}, HD: {NUM}")
