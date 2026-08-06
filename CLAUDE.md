@@ -40,7 +40,7 @@ SAU-Net/
 - 주요 의존성: PyTorch + `segmentation_models_pytorch`(in-tree fork) + `monai` + `SimpleITK`
 - 학습/평가 명령 예시는 `docs/EXPERIMENTS.md §1~§2`. train/test 의 `--exp_setting` 이 동일해야 체크포인트 경로가 매칭된다 (§5). GPU 는 실행마다 `CUDA_VISIBLE_DEVICES` 로 1개 핀 (§6).
 - **데이터셋 루트:** `data/datasets/COCA/COCA_3frames_5fold/` 가 유일한 활성 경로다 (저장소 안이지만 `.gitignore` 로 git 밖). 인자는 `--root_path_5fold`/`--list_dir_5fold`/`--hu_stats_path` (모두 기본값이 `/home/psw/...` 절대경로로 박혀 있어 다른 PC 로 옮기면 깨지므로 덮어쓸 것). `--root_path`/`--list_dir` (hold-out 인자)는 통합 과정에서 제거돼 더 이상 존재하지 않는다. `--use_5fold_cv` 는 하위 호환용으로 남은 플래그일 뿐 실제로는 아무것도 분기하지 않는다 — 켜든 안 켜든 학습/평가는 항상 위 5-fold 경로를 읽는다. 경로 구조 상세는 `docs/DATA.md §2`.
-- **5-fold CV 자산 생성:** `build_5fold_dataset.py` 가 `Dataset001_COCA` 원본에서 1회 생성한다 (rebuild 이유·포맷·배경은 `docs/DATA.md §9`).
+- **5-fold CV 자산 생성:** `build_5fold_dataset.py` 가 `Dataset001_COCA` 원본에서 1회 생성한다 (rebuild 이유·포맷·배경은 `docs/DATA.md §9`, `docs/FIVE_FOLD_CV.md §1~§2`).
 
 ## 4. 핵심 컨벤션
 
@@ -82,7 +82,7 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 | `ct_normalization` 의 상수 | 단일 hold-out 기본값 `lower=-2.0, upper=1521.0, mean=355.38, std=282.92` (train 300-case). **5-fold 경로는 이 기본값을 쓰지 않는다** — `hu_stats_433.json` (`15.0/1577.0/773.55/399.24`, 433-case 0.5/99.5 분위수) 을 `load_hu_stats` 로 읽어 `COCAVolumeDataset` 이 명시 인자로 전달한다. 두 경로의 정규화가 다르므로 절대 수치 직접 비교 금지. 다른 코호트(KMU 등) 적용 시 재산정. |
 | `dataset.py` 가 저장소 루트에 있는 이유 | env 에 HF `datasets`(4.5.0)가 설치돼 있어, 예전 `datasets/` 패키지는 빈 `__init__.py` 로만 우선권을 잡고 있었다. 루트 `dataset.py` 로 옮겨 이름 충돌 자체를 없앴다 — `datasets/` 를 되살리지 말 것. |
 | 평가는 3D | `tester.py` 는 슬라이스 예측을 케이스별로 모아 3D 볼륨으로 합성한 뒤 MONAI 메트릭 (Dice/MeanIoU/SurfaceDistance) 을 적용한다. 2D 슬라이스 단위 메트릭이 필요하면 `compute_metrics_3d` 를 우회해야 한다. |
-| 5-fold CV 시 분할 단위 | 반드시 **case 단위**로 fold 를 나눠야 한다. 슬라이스 단위 stratify 는 같은 case 의 인접 슬라이스가 train/val 양쪽에 동시 등장해 NPZ 안의 prev/ref/next 채널을 통해 raw 픽셀이 누수된다 (2.5D 가정 파괴). 층화 키는 vessel multi-hot 벡터, API 는 `MultilabelStratifiedKFold`. |
+| 5-fold CV 시 분할 단위 | 반드시 **case 단위**로 fold 를 나눠야 한다. 슬라이스 단위 stratify 는 같은 case 의 인접 슬라이스가 train/val 양쪽에 동시 등장해 NPZ 안의 prev/ref/next 채널을 통해 raw 픽셀이 누수된다 (2.5D 가정 파괴). 층화 키는 vessel multi-hot 벡터, API 는 `MultilabelStratifiedKFold`. 결정 배경은 `docs/FIVE_FOLD_CV.md` §1.2~§1.3. |
 
 ## 7. 자주 헷갈리는 용어
 
@@ -104,7 +104,7 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 - `docs/ARCHITECTURE.md` — MSFFM 내부 동작, encoder integration 흐름, attention 시각화 hook.
 - `docs/DATA.md` — COCA 데이터셋 포맷, npz 구조, list 파일, CT normalization.
 - `docs/EXPERIMENTS.md` — 학습/평가 명령 예시, exp_setting 명명 규약, 파인튜닝 워크플로.
-- `TODO.md` — git-ignored 로컬 전용 작업 계획 문서. 저장소를 clone 해도 존재하지 않는다.
+- `docs/FIVE_FOLD_CV.md` — 5-fold stratified CV 전환 기록. 결정 사항, Phase 별 작업 기록(페어별 진행 상태), 영향 받는 코드/문서 목록을 담는다. 5-fold 관련 배경 확인 시 참고.
 - `tests/check_*.py` — 통합 시 도입한 검증 스크립트. pytest 미사용, 저장소 루트에서 `PYTHONPATH=. python tests/check_<name>.py` 로 개별 실행하며 exit code 로 판정한다. 데이터 경로·MSFFM 배선·손실 조합·CLI 조합 검증을 담당한다.
 - `MSFFM_full_20251223.pdf` — 원고 (figure / table 의 1차 출처).
 
