@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 import math
 import numpy as np
@@ -77,6 +78,9 @@ def build_3d_volume(image_slices: dict, pred_slices: dict, label_slices: dict, c
     sorted_ids = sorted(pred_slices.keys())
     min_z, max_z = sorted_ids[0], sorted_ids[-1]
     depth = max_z - min_z + 1
+    # 결손 z 는 np.zeros 초기값(배경)으로 남아 메트릭에 조용히 섞인다.
+    if depth != len(sorted_ids):
+        logging.warning(f"[{case_id}] slice {depth - len(sorted_ids)}개 결손 — 해당 z 는 배경(0)으로 채워짐")
 
     any_slice = sorted_ids[0]
     H, W = pred_slices[any_slice].shape
@@ -191,8 +195,7 @@ def _rot90_cell(r, c, g, k):
 def visualize_attention(attn_dict, input_image, label, file_name, save_path):
     """
     attn_dict: forward hook을 통해 저장된 attention map 딕셔너리
-               (키: "stage3_prev", "stage3_self", "stage3_next", 
-                     "stage4_prev", "stage4_self", "stage4_next")
+               (키: "stage{s}_{prev|self|next}" — s 는 백본의 MSFFM 삽입 stage 번호)
                각 값은 (B, num_heads, N, N) 텐서.
     input_image: 원본 입력 이미지 (numpy, shape: (3, H, W); 채널 0: prev, 1: center, 2: next)
     label: center slice의 segmentation label (numpy, shape: (H, W))
@@ -207,7 +210,7 @@ def visualize_attention(attn_dict, input_image, label, file_name, save_path):
          query에 해당하는 row(attn[:, :, q_index, :])의 attention 분포를 추출하여 head 평균 후,
          원래 feature map 해상도로 복원하고, 최종적으로 입력 이미지 해상도(W, H)로 업샘플링.
       4. 업샘플된 attention map에 grid overlay를 적용하고, q_index 기반의 grid cell 위치를 빨간색 사각형으로 강조.
-      5. stage3와 stage4 각각에 대해 prev, self, next 총 3가지 map을 2행 3열 subplot으로 그려 저장.
+      5. MSFFM 이 삽입된 stage 마다 prev, self, next 3가지 map 을 한 행으로 그려 저장.
     """
     # 1. center slice와 label을 그대로 사용
     # input_image 는 (C,H,W). center 는 3채널이면 1, 1채널이면 0.
@@ -231,12 +234,17 @@ def visualize_attention(attn_dict, input_image, label, file_name, save_path):
     qr_disp, qc_disp = _rot90_cell(q_row, q_col, H, VIS_ROT90_CCW)  # COCA 512 정사각(H==W) 가정
     query_text = f"(Query col,row: ({qc_disp}, {qr_disp}))"
 
-    # 4. 각 stage별 시각화 대상 key 설정  
-    stage3_keys = ["stage3_prev", "stage3_self", "stage3_next"]
-    stage4_keys = ["stage4_prev", "stage4_self", "stage4_next"]
+    # 4. 시각화 대상 stage 를 attn_dict 에서 직접 찾는다. MSFFM 삽입 stage 번호가 백본마다
+    #    다르므로(resnet/mit/emcad = 3·4, densenet/efficientnet = 4·5) 고정하면 빈 행이 나온다.
+    stage_nums = sorted({int(m.group(1)) for k in attn_dict
+                         if (m := re.fullmatch(r'stage(\d+)_(?:prev|self|next)', k))})
+    if not stage_nums:
+        return
+    stage_key_groups = [[f"stage{s}_{branch}" for branch in ("prev", "self", "next")] for s in stage_nums]
 
-    # 2행 3열 subplot 생성 (첫 행: stage3, 두 번째 행: stage4)
-    fig, axs = plt.subplots(2, 3, figsize=(18, 10))
+    # stage 당 1행 × (prev, self, next) 3열
+    fig, axs = plt.subplots(len(stage_key_groups), 3,
+                            figsize=(18, 5 * len(stage_key_groups)), squeeze=False)
 
     # 5a. 1-pass: 각 패널의 attention 분포를 uniform(1/N) 대비 배수로 변환한다.
     #     기존 per-panel min-max 정규화는 거의 균일한 분포까지 풀스케일 jet 로 그려 핫스팟처럼
@@ -244,9 +252,9 @@ def visualize_attention(attn_dict, input_image, label, file_name, save_path):
     #     실제 집중(예: 인접 슬라이스 동일 위치)만 튀어 query↔hotspot 비교가 정직해진다.
     #     각 패널의 peak 배수와 query 위치(빨간 박스) 배수를 함께 기록해 제목에 표기한다
     #     ("query 가 박스 위치를 보는가" = attn@box, "어디든 가장 강한 집중" = peak).
-    panel = {}  # key -> (ratio_resized_rot, (rect_x,rect_y), cell_w, cell_h, grid_count, r_box, r_peak)
+    panel = {}  # key -> (ratio_resized_rot, (rect_x,rect_y), cell_w, cell_h, feat, r_box, r_peak)
     panel_maxes = []
-    for stage_keys, grid_count in zip([stage3_keys, stage4_keys], [32, 16]):
+    for stage_keys in stage_key_groups:
         for key in stage_keys:
             if key not in attn_dict:
                 continue
@@ -267,11 +275,12 @@ def visualize_attention(attn_dict, input_image, label, file_name, save_path):
             ratio_resized = np.rot90(cv2.resize(ratio, (W, H)), VIS_ROT90_CCW)
             panel_maxes.append(r_peak)
 
-            # 박스(query grid cell)도 표시 회전과 동일하게 옮긴다
-            qrg, qcg = _rot90_cell(q_index // grid_count, q_index % grid_count, grid_count, VIS_ROT90_CCW)
-            cell_w = W / grid_count
-            cell_h = H / grid_count
-            panel[key] = (ratio_resized, (qcg * cell_w, qrg * cell_h), cell_w, cell_h, grid_count, r_box, r_peak)
+            # 박스(query grid cell)도 표시 회전과 동일하게 옮긴다. 그리드 칸 수는 stage 번호가
+            # 아니라 attention 행렬 크기에서 나온 feat 이어야 한다 (백본마다 stage↔해상도가 다름).
+            qrg, qcg = _rot90_cell(q_index // feat, q_index % feat, feat, VIS_ROT90_CCW)
+            cell_w = W / feat
+            cell_h = H / feat
+            panel[key] = (ratio_resized, (qcg * cell_w, qrg * cell_h), cell_w, cell_h, feat, r_box, r_peak)
 
     # 공통 vmax: self-attention 의 off-query 극단 peak(수백 배) 하나가 스케일을 독식해 cross
     # 패널의 의미 있는 peak(수십 배)를 눌러버리는 것을 막기 위해 per-panel peak 의 median 을
@@ -281,21 +290,21 @@ def visualize_attention(attn_dict, input_image, label, file_name, save_path):
     # 5b. 2-pass: 공통 vmin=0·vmax 로 그려 6패널 강도를 직접 비교 가능하게 한다.
     main_disp = np.rot90(main_img, VIS_ROT90_CCW)
     im = None
-    for row_idx, stage_keys in enumerate([stage3_keys, stage4_keys]):
+    for row_idx, stage_keys in enumerate(stage_key_groups):
         for col_idx, key in enumerate(stage_keys):
             ax = axs[row_idx, col_idx]
             ax.axis('off')
             if key not in panel:
                 ax.set_title(f"{key} not available", fontsize=10)
                 continue
-            ratio_resized, (rect_x, rect_y), cell_w, cell_h, grid_count, r_box, r_peak = panel[key]
+            ratio_resized, (rect_x, rect_y), cell_w, cell_h, feat, r_box, r_peak = panel[key]
 
             ax.imshow(main_disp, cmap='gray')
             im = ax.imshow(ratio_resized, cmap='jet', alpha=0.5, vmin=0.0, vmax=vmax)
             # attn@box = query 가 빨간 박스(=병변 자기 위치)를 보는 배수, peak = 어디든 최대 집중 배수.
             ax.set_title(f"{key}   attn@box={r_box:.0f}x  peak={r_peak:.0f}x", fontsize=10)
 
-            for i in range(1, grid_count):
+            for i in range(1, feat):
                 ax.axvline(i * cell_w, color='white', linewidth=1, alpha=0.8)
                 ax.axhline(i * cell_h, color='white', linewidth=1, alpha=0.8)
             ax.add_patch(Rectangle((rect_x, rect_y), cell_w, cell_h,

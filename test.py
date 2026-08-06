@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import random
 import argparse
@@ -44,9 +45,10 @@ parser.add_argument('--z_spacing', type=int, default=3, help='z spacing of the v
 # 5-fold CV 옵션 (기본 비활성, 단일 hold-out 경로와 하위 호환). 평가 대상은 fold_idx (= val fold).
 parser.add_argument('--use_5fold_cv', action="store_true", help='evaluate on 5-fold validation fold')
 parser.add_argument('--fold_idx', type=int, default=0, help='validation fold index to evaluate (0..4)')
-parser.add_argument('--root_path_5fold', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold', help='5-fold per-case volume root (images/, labels/)')
-parser.add_argument('--list_dir_5fold', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold list dir (fold0.txt..fold4.txt)')
-parser.add_argument('--hu_stats_path', type=str, default='/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU normalization stats json')
+# 기본값은 cwd 기준 상대경로다 — 로그 경로(`./test_log/`)와 같은 기준이라 저장소 루트에서 실행해야 한다.
+parser.add_argument('--root_path_5fold', type=str, default='./data/datasets/COCA/COCA_3frames_5fold', help='5-fold per-case volume root (images/, labels/)')
+parser.add_argument('--list_dir_5fold', type=str, default='./data/datasets/COCA/COCA_3frames_5fold/lists_COCA_5fold', help='5-fold list dir (fold0.txt..fold4.txt)')
+parser.add_argument('--hu_stats_path', type=str, default='./data/datasets/COCA/COCA_3frames_5fold/hu_stats_433.json', help='433-case HU normalization stats json')
 # Attention 시각화 옵션. 켜면 NonLocalBlock 들의 return_attention=True 자동 토글 + hook 자동 등록 + 시각화 저장.
 parser.add_argument('--save_attention', action="store_true", help='enable attention visualization saving')
 # EMCAD 디코더 전용 (--decoder emcad/emcad_sa 에서만 사용)
@@ -64,9 +66,9 @@ if args.encoder not in allowed_encoders(args.decoder):
     parser.error(f"--decoder {args.decoder} 는 --encoder {args.encoder} 를 지원하지 않음. "
                  f"허용: {allowed_encoders(args.decoder)}")
 
-# fold 정체성은 경로에 안 들어가고 손으로 친 exp_setting 문자열이 전부다.
-# 불일치하면 다른 fold 의 체크포인트를 평가하게 된다.
-if f"fold{args.fold_idx}" not in args.exp_setting:
+# fold 정체성은 경로에 안 들어가고 손으로 친 exp_setting 문자열이 전부다. fold 토큰이
+# 아예 없으면 fold 개념이 없는 코호트의 파인튜닝 산출물이라 대조할 fold 가 없어 통과시킨다.
+if re.search(r'fold\d+', args.exp_setting) and f"fold{args.fold_idx}" not in args.exp_setting:
     parser.error(f"--fold_idx={args.fold_idx} 인데 --exp_setting='{args.exp_setting}' 에 "
                  f"'fold{args.fold_idx}' 가 없음. 다른 fold 의 체크포인트를 평가할 위험.")
 
@@ -96,6 +98,8 @@ if __name__ == "__main__":
                             in_channels=1,
                             classes=args.num_classes).cuda()
     else:
+        # 평가 가중치는 전부 체크포인트에서 온다 (strict load). pretrain=True 로 두면 곧
+        # 덮어쓸 pvt 가중치를 읽느라 b1/b4/b5 가 없는 파일로 죽는다.
         NetCls = EMCAD_SA_Net if args.decoder == 'emcad_sa' else EMCADNet
         net = NetCls(num_classes=args.num_classes,
                      kernel_sizes=args.kernel_sizes,
@@ -105,7 +109,7 @@ if __name__ == "__main__":
                      lgag_ks=args.lgag_ks,
                      activation=args.activation_mscb,
                      encoder=args.encoder,
-                     pretrain=not args.no_pretrain).cuda()
+                     pretrain=False).cuda()
 
     exp_path = os.path.join(net.__class__.__name__ + '_' + args.encoder, args.dataset + '_' + str(args.img_size), args.exp_setting)
     parameter_path = 'epo' + str(args.max_epochs) + '_bs' + str(args.batch_size) + '_lr' + str(args.base_lr)
