@@ -6,7 +6,7 @@
 
 심장 게이트 CT 상의 **관상동맥 석회화(CAC, Coronary Artery Calcification)** 분할을 위한 2.5D 세그멘테이션 프레임워크 연구 코드. 표준 2D Encoder–Decoder(U-Net / SegFormer / EMCAD) 백본에 **MSFFM(Multi-Slice Feature Fusion Module)** 을 plug-and-play 로 끼워 넣어, 인접 3개 슬라이스 (이전 / 기준 / 이후)의 inter-slice continuity 를 self/cross-attention 으로 회복한다.
 
-자세한 동기·설계·실험 결과는 `MSFFM_full_20251223.pdf`(원고)와 `docs/ARCHITECTURE.md` 참고.
+자세한 동기·설계는 `docs/ARCHITECTURE.md` 참고. 원고 `MSFFM_full_20251223.pdf` 는 저장소에 없다 (git 이력에도 없음, 소유자 로컬 파일) — figure/table 의 1차 출처지만 에이전트는 열 수 없다.
 
 ## 2. 디렉터리 맵 (핵심만)
 
@@ -49,7 +49,7 @@ SAU-Net/
 - **손실:** `--decoder` 계열에서 기본값이 유도된다 (`--supervision`/`--dice_weight`/`--ce_weight` 로 덮어쓸 수 있음). `unet`/`segformer` = `last_layer` supervision, `0.5·Dice + 0.5·CE`. `emcad`/`emcad_sa` = `mutation` deep supervision, `0.7·Dice + 0.3·CE`. AMP(`GradScaler`) 는 계열 무관 공통 사용.
 - **옵티마이저·스케줄:** AdamW(lr=1e-5, wd=1e-4) + 커스텀 `PolyLRScheduler` (exponent=0.9).
 - **MHA heads:** 논문 명시값 8. 모든 `_sa` 인코더(`resnet_sa.py` / `densenet_sa.py` / `efficientnet_sa.py` / `mix_transformer_sa.py`)와 참고 구현 `multi_slice_feature_fusion.py` 가 `num_heads=8` 로 통일됨. attention 은 전체 `(H·W)×(H·W)`.
-- **MSFFM 삽입 위치:** encoder 의 stage 3(32×32) 와 stage 4(16×16). 두 곳 동시 적용이 최적 (Ablation, 논문 Table 4).
+- **MSFFM 삽입 위치:** encoder 의 32×32 / 16×16 해상도 두 곳. 동시 적용이 최적 (Ablation, 논문 Table 4). 모듈 이름의 stage 번호는 백본마다 다르다 — `resnet_sa`/`mix_transformer_sa` 는 `cross_attention_*_3`/`_4`, `densenet_sa`/`efficientnet_sa` 는 `_4`/`_5`. 해상도는 네 백본 모두 같다.
 - **체크포인트 네이밍:** `epoch_{N}_{val_loss:.4f}_best_model.pth` (val_loss 최저 시 저장) 와 학습 종료 시점의 `epoch_{max}_{val_loss}.pth`.
 
 ## 5. 경로 규약 (snapshot / log)
@@ -78,8 +78,8 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 | `--decoder emcad_sa` 의 encoder 제한 | `pvt_v2_b1`~`b5` 만 지원한다. MSFFM 의 `NonLocalBlock` 채널이 320/512 로 고정인데 `pvt_v2_b0` 만 160/256 이기 때문. `train.py`/`test.py` 가 parse 직후 거부한다. |
 | hold-out 경로 부재 | 5-fold 경로(`COCA_3frames_5fold`)가 유일하게 남은 경로다. `--use_5fold_cv` 여부와 무관하게 항상 이 경로를 쓴다 (§3). 5-fold 이전 hold-out(`COCA_dataset`, `COCA_1frame`) 은 통합 시 제거됐다. 옛 hold-out 결과 재현은 동결 브랜치(`single_slice`/`EMCAD`/`EMCAD-SA`)에서 한다. |
 | 학습 시 `DataLoader(shuffle=False, collate_fn=shuffle_within_batch)` | shuffle 을 batch 내부에서 수행. 외부 shuffle 을 켜지 말 것 — 인접 슬라이스 정렬이 깨지면 MSFFM 가정이 무의미해진다. |
-| **학습 1개 = GPU 1개 (DataParallel 자동 함정)** | `trainer.py:77-78` 이 `torch.cuda.device_count()>1` 이면 **보이는 GPU 를 전부 `nn.DataParallel` 로 잡는다**. 한 학습(run)은 반드시 단일 GPU 로 돌려야 하므로 **매 실행에 `CUDA_VISIBLE_DEVICES=0` 또는 `=1` 을 명시**할 것 (그러면 `device_count()==1` → DataParallel 미적용). 두 GPU 가 모두 비면 `=0`/`=1` 로 서로 다른 실험을 동시에 돌려도 된다. 명령·병렬 워크플로 상세는 `docs/EXPERIMENTS.md §5·§8`. |
-| `ct_normalization` 의 상수 | 단일 hold-out 기본값 `lower=-2.0, upper=1521.0, mean=355.38, std=282.92` (train 300-case). **5-fold 경로는 이 기본값을 쓰지 않는다** — `hu_stats_433.json` (`15.0/1577.0/773.55/399.24`, 433-case 0.5/99.5 분위수) 을 `load_hu_stats` 로 읽어 `COCAVolumeDataset` 이 명시 인자로 전달한다. 두 경로의 정규화가 다르므로 절대 수치 직접 비교 금지. 다른 코호트(KMU 등) 적용 시 재산정. |
+| **학습 1개 = GPU 1개 (DataParallel 자동 함정)** | `trainer.py` 가 `torch.cuda.device_count()>1` 이면 **보이는 GPU 를 전부 `nn.DataParallel` 로 잡는다**. 한 학습(run)은 반드시 단일 GPU 로 돌려야 하므로 **매 실행에 `CUDA_VISIBLE_DEVICES=0` 또는 `=1` 을 명시**할 것 (그러면 `device_count()==1` → DataParallel 미적용). 두 GPU 가 모두 비면 `=0`/`=1` 로 서로 다른 실험을 동시에 돌려도 된다. 명령·병렬 워크플로 상세는 `docs/EXPERIMENTS.md §5·§8`. |
+| `ct_normalization` 의 상수 | 시그니처의 하드코딩 기본값 `lower=-2.0, upper=1521.0, mean=355.38, std=282.92` (train 300-case) 은 **hold-out 제거 후 어떤 활성 경로도 호출하지 않는다** — `COCAVolumeDataset` 이 항상 `hu_stats_433.json` (`15.0/1577.0/773.55/399.24`, 433-case 0.5/99.5 분위수) 을 `load_hu_stats` 로 읽어 명시 인자로 전달한다. 동결 브랜치의 hold-out 결과는 이 죽은 기본값으로 산출된 것이라 5-fold 수치와 절대 비교 금지. 다른 코호트(KMU 등) 적용 시 재산정. |
 | `dataset.py` 가 저장소 루트에 있는 이유 | env 에 HF `datasets`(4.5.0)가 설치돼 있어, 예전 `datasets/` 패키지는 빈 `__init__.py` 로만 우선권을 잡고 있었다. 루트 `dataset.py` 로 옮겨 이름 충돌 자체를 없앴다 — `datasets/` 를 되살리지 말 것. |
 | 평가는 3D | `tester.py` 는 슬라이스 예측을 케이스별로 모아 3D 볼륨으로 합성한 뒤 MONAI 메트릭 (Dice/MeanIoU/SurfaceDistance) 을 적용한다. 2D 슬라이스 단위 메트릭이 필요하면 `compute_metrics_3d` 를 우회해야 한다. |
 | 5-fold CV 시 분할 단위 | 반드시 **case 단위**로 fold 를 나눠야 한다. 슬라이스 단위 stratify 는 같은 case 의 인접 슬라이스가 train/val 양쪽에 동시 등장해 NPZ 안의 prev/ref/next 채널을 통해 raw 픽셀이 누수된다 (2.5D 가정 파괴). 층화 키는 vessel multi-hot 벡터, API 는 `MultilabelStratifiedKFold`. 결정 배경은 `docs/FIVE_FOLD_CV.md` §1.2~§1.3. |
@@ -93,7 +93,7 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 
 ## 8. 변경할 때 따르는 절차
 
-1. `MSFFM_full_20251223.pdf` 의 Methods / Ablation 절을 먼저 확인 — 실험적 의도와 어긋나는 수정인지 점검.
+1. 실험적 의도와 어긋나는 수정인지 먼저 점검 — 원고가 저장소에 없으므로 `docs/ARCHITECTURE.md` 와 `docs/FIVE_FOLD_CV.md` 의 결정 기록으로 대조하고, 판단이 서지 않으면 원고를 가진 소유자에게 확인한다.
 2. 코드 수정 시 한국어 주석 유지(전역 규칙). 영어 식별자/타입은 그대로 둘 것.
 3. 학습 → 평가의 경로 규약(§5) 을 깨지 않는 한 가장 작은 변경을 적용.
 4. 디버그 `print` 가 시끄럽다고 일괄 제거하지 말 것 — `residual ratio` 출력은 의도된 instrumentation 가능성이 있다 (§6).
@@ -106,7 +106,7 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 - `docs/EXPERIMENTS.md` — 학습/평가 명령 예시, exp_setting 명명 규약, 파인튜닝 워크플로.
 - `docs/FIVE_FOLD_CV.md` — 5-fold stratified CV 전환 기록. 결정 사항, Phase 별 작업 기록(페어별 진행 상태), 영향 받는 코드/문서 목록을 담는다. 5-fold 관련 배경 확인 시 참고.
 - `tests/check_*.py` — 통합 시 도입한 검증 스크립트. pytest 미사용, 저장소 루트에서 `PYTHONPATH=. python tests/check_<name>.py` 로 개별 실행하며 exit code 로 판정한다. 데이터 경로·MSFFM 배선·손실 조합·CLI 조합 검증을 담당한다.
-- `MSFFM_full_20251223.pdf` — 원고 (figure / table 의 1차 출처).
+- `MSFFM_full_20251223.pdf` — 원고 (figure / table 의 1차 출처). **저장소에 없다** — 소유자 로컬 파일이라 에이전트는 열 수 없다.
 
 ## 10. 브랜치 맵 (Branch Map)
 
