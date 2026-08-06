@@ -88,6 +88,34 @@ got = derive_recipe(['--decoder', 'unet', '--encoder', 'resnet50',
                      '--dice_weight', '0.9', '--supervision', 'deep_supervision'])
 assert got == ('deep_supervision', 0.9, 0.5, 1), got
 
+# --- test.py 도 train.py 와 같은 num_slices 를 유도하는지 독립 확인 ---
+# 둘 다 derive_num_slices 를 호출하긴 하지만, 여기서 직접 utils.derive_num_slices() 를 불러
+# 비교하면 두 진입점 중 하나가 그 호출을 빼먹고 값을 하드코딩해도 통과해버린다. 반드시
+# 실제로 실행된 test.py 모듈의 args.num_slices 를 읽어야 그런 드리프트를 잡는다.
+
+_test_entry = None
+
+def derive_num_slices_via_test(extra):
+    """test.py 를 argv 만 바꿔 재실행하고 유도된 args.num_slices 를 돌려준다.
+
+    모델 생성·평가는 `if __name__ == "__main__"` 안이라 import 로는 실행되지 않는다.
+    """
+    global _test_entry
+    sys.argv = ['test.py', '--exp_setting', 'recipe_probe_fold0'] + extra
+    if _test_entry is None:
+        import test as _test_entry_module
+        _test_entry = _test_entry_module
+    else:
+        _test_entry = importlib.reload(_test_entry)
+    return _test_entry.args.num_slices
+
+for decoder, encoder, expected_num_slices in [
+        ('unet', 'resnet50_sa', 3), ('unet', 'resnet50', 1),
+        ('segformer', 'mit_b2_sa', 3), ('segformer', 'mit_b2', 1),
+        ('emcad', 'pvt_v2_b2', 1), ('emcad_sa', 'pvt_v2_b2', 3)]:
+    got = derive_num_slices_via_test(['--decoder', decoder, '--encoder', encoder])
+    assert got == expected_num_slices, f'test.py {decoder}+{encoder} num_slices 유도: {got} != {expected_num_slices}'
+
 # --- 진입점 배선: train.py 와 test.py 가 실제로 이 헬퍼를 쓰는가 ---
 
 PY = sys.executable
@@ -142,4 +170,4 @@ finally:
 if failures:
     raise AssertionError('진입점 조합 검증 실패:\n  ' + '\n  '.join(failures))
 
-print(f'OK: 헬퍼 단위 검증 + 진입점 2개 x 무효 {len(INVALID)}개 거부, 유효 {len(VALID)}개 통과')
+print(f'OK: 헬퍼 단위 검증 + train.py/test.py num_slices 일치 + 진입점 2개 x 무효 {len(INVALID)}개 거부, 유효 {len(VALID)}개 통과')

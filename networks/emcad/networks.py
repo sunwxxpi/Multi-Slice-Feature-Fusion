@@ -85,11 +85,15 @@ class EMCADNet(nn.Module):
         self.out_head1 = nn.Conv2d(channels[3], num_classes, 1)
         
     def forward(self, x):
-        
-        # if grayscale input, convert to 3 channels
-        if x.size()[1] == 1:
-            x = self.conv(x)
-        
+
+        # EMCADNet 은 설계상 1채널만 받는다 (derive_num_slices('emcad', ...) == 1). 가드 없이
+        # 3채널(prev/reference/next 트리플렛)이 들어오면 이 변환을 건너뛰고 RGB 처럼 소비해
+        # 크래시 없이 결과만 조용히 틀려진다.
+        if x.size()[1] != 1:
+            raise ValueError(
+                f'EMCADNet expects 1-channel input, got {x.size()[1]} channels')
+        x = self.conv(x)
+
         # encoder
         x1, x2, x3, x4 = self.backbone(x)
 
