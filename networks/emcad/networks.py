@@ -91,7 +91,7 @@ class EMCADNet(nn.Module):
         # 크래시 없이 결과만 조용히 틀려진다.
         if x.size()[1] != 1:
             raise ValueError(
-                f'EMCADNet expects 1-channel input, got {x.size()[1]} channels')
+                f'EMCADNet 은 1채널 입력만 받는다. 받은 채널 수: {x.size()[1]}')
         x = self.conv(x)
 
         # encoder
@@ -158,7 +158,7 @@ class EMCAD_SA_Net(EMCADNet):
 
 if __name__ == '__main__':
     model = EMCADNet().cuda()
-    input_tensor = torch.randn(1, 3, 352, 352).cuda()
+    input_tensor = torch.randn(1, 1, 352, 352).cuda()
 
     P = model(input_tensor)
     print(P[0].size(), P[1].size(), P[2].size(), P[3].size())
