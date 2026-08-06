@@ -94,7 +94,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py \
 
 ## 5. GPU 핀 — 한 학습 = 한 GPU (중요)
 
-**한 학습(run)은 반드시 단일 GPU 로만 돌린다.** `trainer.py:77-78` 이 `torch.cuda.device_count() > 1` 이면 자동으로 `nn.DataParallel` 로 보이는 GPU 를 전부 잡으므로, 매 실행에 **`CUDA_VISIBLE_DEVICES=0` 또는 `=1` 을 명시**해 GPU 를 1개로 핀할 것 (`device_count()==1` 이 되어 DataParallel 미적용). 두 GPU 가 모두 비어 있으면 `=0`/`=1` 로 **서로 다른 실험을 GPU 별로 동시에** 돌려 처리량을 2배로 올릴 수 있다 (예: fold0→GPU0, fold1→GPU1). SMP 그리드만 40 trainings 규모라 이 병렬화가 전체 소요 시간을 크게 줄인다.
+**한 학습(run)은 반드시 단일 GPU 로만 돌린다.** `trainer.py` 는 `torch.cuda.device_count() > 1` 이면 자동으로 `nn.DataParallel` 로 보이는 GPU 를 전부 잡으므로, 매 실행에 **`CUDA_VISIBLE_DEVICES=0` 또는 `=1` 을 명시**해 GPU 를 1개로 핀할 것 (`device_count()==1` 이 되어 DataParallel 미적용). 두 GPU 가 모두 비어 있으면 `=0`/`=1` 로 **서로 다른 실험을 GPU 별로 동시에** 돌려 처리량을 2배로 올릴 수 있다 (예: fold0→GPU0, fold1→GPU1). SMP 그리드만 40 trainings 규모라 이 병렬화가 전체 소요 시간을 크게 줄인다.
 
 저장 시에는 (DataParallel 인 경우) `model.module.state_dict()` 로 복원되므로 평가 단계의 단일 GPU 로딩이 호환된다. **`DistributedDataParallel` 은 지원하지 않는다** — 도입하려면 trainer 전체를 다시 써야 한다.
 
@@ -135,7 +135,7 @@ Overall 3D Metrics Across All Cases:
 
 ### 8.1 실행 순서 정책
 
-1. **Phase 1~3 완료 확인** — `COCA_3frames_5fold/`(images/labels/lists/hu_stats) 산출 + 코드 수정(`--use_5fold_cv` 분기, `dataset.py` 의 5-fold 로더) 모두 끝나 있어야 함 (`docs/FIVE_FOLD_CV.md` §2~§3).
+1. **Phase 1~3 완료 확인** — `COCA_3frames_5fold/`(images/labels/lists/hu_stats) 산출 + `dataset.py` 의 5-fold 로더 모두 끝나 있어야 함. `--use_5fold_cv` 는 하위 호환용으로 파싱만 되고 읽히지는 않는다 — 5-fold 경로는 항상 무조건 실행된다 (`docs/FIVE_FOLD_CV.md` §2~§3).
 2. **Smoke test** — `--fold_idx 0 --max_epochs 2 --early_stopping_patience 0` 로 짧게 1회 학습+평가가 종단간 도는지 확인 (체크포인트 저장 + `results.txt` 생성).
 3. **SMP 5-fold 그리드** — 8 config(4 enc × 2 dec) × fold0~4 = 40 trainings → 평가 40 → config별 `aggregate_5fold_results.py`. 두 GPU 에 4 config 씩 나눠 병렬(§8.2).
 

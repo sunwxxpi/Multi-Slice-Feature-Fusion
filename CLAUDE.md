@@ -14,7 +14,7 @@
 SAU-Net/
 ├── train.py / trainer.py         # 학습 진입점 및 학습 루프
 ├── test.py  / tester.py          # 평가 진입점 및 3D 메트릭 계산
-├── utils.py                      # PolyLRScheduler, DiceLoss, FocalLoss
+├── utils.py                      # PolyLRScheduler, DiceLoss, FocalLoss, SMP_ENCODERS, encoder 검증, supervision 조합 빌더
 ├── dataset.py                    # COCAVolumeDataset, CT normalization, augmentation
 ├── segmentation_models_pytorch/  # SMP 라이브러리를 in-tree 로 fork·수정한 코드
 │   └── encoders/
@@ -61,7 +61,7 @@ snapshot_path = ./model/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_setting}/
 log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_setting}/epo{E}_bs{B}_lr{LR}/
 ```
 
-- `NetClass` 는 `net.__class__.__name__` 이므로 `Unet`, `Segformer` 가 들어간다.
+- `NetClass` 는 `net.__class__.__name__` 이므로 `--decoder` 에 따라 `Unet`, `Segformer`, `EMCADNet`, `EMCAD_SA_Net` 네 가지가 들어간다.
 - `lr` 은 파이썬 float 의 문자열 표현 (`1e-05` → 그대로 문자열). 비교 시 `1.0e-05` 등으로 바꾸지 말 것.
 - 파인튜닝 시 (`--enable_finetuning`) 은 동일 `exp_setting` 의 best 체크포인트를 로드한 뒤 `--finetune_exp_setting` 의 새 디렉터리에 저장한다. 무시(strict=False)되는 키는 decoder 계열마다 다르다 — `unet`/`segformer` 는 `segmentation_head.` 로 시작하는 키를, `emcad`/`emcad_sa` 는 `out_head` 로 시작하는 키(`out_head1~4`, deep supervision 출력 헤드)를 제거한다. 어느 쪽이든 클래스 수가 달라도 인코더·디코더는 재사용된다.
 
@@ -83,6 +83,8 @@ log_path      = ./test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_settin
 | `dataset.py` 가 저장소 루트에 있는 이유 | env 에 HF `datasets`(4.5.0)가 설치돼 있어, 예전 `datasets/` 패키지는 빈 `__init__.py` 로만 우선권을 잡고 있었다. 루트 `dataset.py` 로 옮겨 이름 충돌 자체를 없앴다 — `datasets/` 를 되살리지 말 것. |
 | 평가는 3D | `tester.py` 는 슬라이스 예측을 케이스별로 모아 3D 볼륨으로 합성한 뒤 MONAI 메트릭 (Dice/MeanIoU/SurfaceDistance) 을 적용한다. 2D 슬라이스 단위 메트릭이 필요하면 `compute_metrics_3d` 를 우회해야 한다. |
 | 5-fold CV 시 분할 단위 | 반드시 **case 단위**로 fold 를 나눠야 한다. 슬라이스 단위 stratify 는 같은 case 의 인접 슬라이스가 train/val 양쪽에 동시 등장해 NPZ 안의 prev/ref/next 채널을 통해 raw 픽셀이 누수된다 (2.5D 가정 파괴). 층화 키는 vessel multi-hot 벡터, API 는 `MultilabelStratifiedKFold`. 결정 배경은 `docs/FIVE_FOLD_CV.md` §1.2~§1.3. |
+| 체크포인트 선택 방식이 3곳마다 다름 | `test.py` 는 `sorted(glob(...))` 결과가 정확히 1개인지 assert 한 뒤 그 파일을 쓴다. `train.py` 의 파인튜닝 경로는 정렬하지 않는 `os.listdir()` 에서 이름이 `best_model` 로 끝나는 첫 항목을 쓴다. `aggregate_5fold_results.py` 는 `glob(...)[0]` (정렬·개수 검증 없음) 을 쓴다. 디렉터리마다 체크포인트가 정확히 1개뿐인 지금은 무해하지만 세 곳의 보장 수준이 서로 다르다 — 의도적으로 통일하지 않고 남겨둠. |
+| `--finetune_exp_setting` 에는 fold 토큰 가드가 없음 | `--exp_setting` 은 `fold{fold_idx}` 문자열 포함을 parse 직후 강제하지만 `--finetune_exp_setting` 은 같은 검증이 없다. 같은 `--finetune_exp_setting` 으로 fold 별 파인튜닝을 여러 번 돌리면 저장 디렉터리가 서로 덮어쓴다. 파인튜닝 대상은 보통 fold 개념이 없는 다른 코호트(KMU 등)라서 의도적으로 가드를 확장하지 않았다. |
 
 ## 7. 자주 헷갈리는 용어
 

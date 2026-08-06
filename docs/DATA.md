@@ -97,7 +97,7 @@ DataLoader(db_train, batch_size=16, shuffle=False, num_workers=8,
 
 ## 8. 새 데이터셋 추가 시 체크리스트
 
-- [ ] `(H, W, 3)` 형태로 prev/center/next 가 미리 묶인 NPZ 를 생성.
+- [ ] `images/case{gidx}.npy` / `labels/case{gidx}.npy` 형태의 케이스 단위 `(D, H, W)` 볼륨을 생성 (§9.1) — prev/center/next 를 미리 묶은 per-slice NPZ 가 아니라, `COCAVolumeDataset` 이 `vol[n:n+3]` 로 인접 슬라이스를 잘라 3채널을 구성한다.
 - [ ] `lists_COCA_5fold/fold0.txt`~`fold4.txt` 형식으로 case 단위 분할 리스트 갱신. 한 줄당 `case{gidx}_slice{n}` (§9.2 포맷).
 - [ ] `ct_normalization` 의 lower/upper/mean/std 를 새 데이터로 재계산해 적용.
 - [ ] `--num_classes`, `DiceLoss` 의 배경 제외 가정, `class_dice_means` 의 인덱싱을 함께 점검.
