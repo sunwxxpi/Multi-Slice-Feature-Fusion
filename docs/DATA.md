@@ -14,13 +14,13 @@
 
 ```
 data/datasets/COCA/                              ← 데이터셋 루트 (git 제외)
-├── COCA_3frames/                                ← single hold-out 용 (기존, 그대로 보존)
+├── COCA_3frames/                                ← single hold-out 용 (동결 브랜치 single_slice/EMCAD/EMCAD-SA 전용)
 │   ├── train_npz/<sample_name>.npz              ← (H, W, 3) image + (H, W) label
 │   ├── test_npz/<sample_name>.npz
 │   └── lists_COCA/                              ← single hold-out 분할
 │       ├── train.txt                            ← 14507 lines (slice 단위)
 │       └── test.txt                             ←  6283 lines
-├── COCA_3frames_5fold/                          ← 5-fold CV 용 (신규, rebuild 산출물)
+├── COCA_3frames_5fold/                          ← 5-fold CV 용 (이 브랜치의 유일한 활성 경로)
 │   ├── images/case{0000..0450}.npy             ← per-case (D, H, W) float32 볼륨 (memmap)
 │   ├── labels/case{0000..0450}.npy             ← per-case (D, H, W) uint8 라벨
 │   ├── lists_COCA_5fold/                        ← case-level stratified 분할
@@ -45,12 +45,7 @@ data/dataprep/                                   ← 전처리/조직화 스크�
 
 `build_5fold_dataset.py` 만 절대경로를 쓰고 나머지는 전부 상대경로라 실행 위치가 결과를 바꾼다 — [`data/dataprep/README.md`](../data/dataprep/README.md) 참조.
 
-`train.py` / `test.py` argparse 기본값:
-- `root_path = /home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/train_npz` (학습)
-- `root_path = /home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/test_npz`  (평가)
-- `list_dir  = /home/psw/SAU-Net/data/datasets/COCA/COCA_3frames/lists_COCA`
-
-다른 환경에서 실행할 때는 반드시 `--root_path` / `--list_dir` 를 지정. `train.txt` 는 학습/검증을 80:20 으로 분할 (`sklearn.model_selection.train_test_split`, `shuffle=False`, seed 42).
+`COCA_3frames/` 는 동결 브랜치(`single_slice`/`EMCAD`/`EMCAD-SA`) 전용 포맷이다 — 이 브랜치의 `train.py`/`test.py` 는 `--root_path`/`--list_dir` 인자 자체가 없다 (5-fold 통합 시 제거됨). 동결 브랜치에서는 `train.txt` 를 학습/검증 80:20 으로 분할해 썼다 (`sklearn.model_selection.train_test_split`, `shuffle=False`, seed 42). 이 브랜치의 활성 경로 인자는 `--root_path_5fold`/`--list_dir_5fold`/`--hu_stats_path` (§9).
 
 NPZ 가 손상되면 `data/dataprep/preprocess_train_test_data_3frames.py` 가 `Dataset001_COCA` 의 nnUNet `.nii.gz` 로부터 `(H, W, 3)` 슬라이스 묶음과 list 파일을 재생성한다. `Dataset001_COCA` 가 저장소에 있으므로 이 경로는 지금도 쓸 수 있다.
 새 코호트가 DICOM/XML 로 들어오는 경우는 다르다 — 그 앞단 스크립트가 읽는 원본 트리(`COCA/COCA_final`, `COCA/Gated_release_final`)는 이 저장소로 옮겨오지 않아 디스크에 없다.
@@ -71,7 +66,7 @@ ct_normalization(image, lower=-2.0, upper=1521.0, mean=355.3804..., std=282.9181
 - `np.clip` 으로 HU 범위 제한 후 z-score.
 - 상수는 COCA train set 의 분포에서 도출. 다른 코호트(KMU 등) 에 적용 시 반드시 재산정.
 - 이전 커밋 `ace4439` 에서 갱신된 값이며, 더 오래된 주석(`lower=1017, upper=1801, ...`) 은 옛 단위 계의 값이므로 사용 금지 — 그대로 두되 켜지 말 것.
-- **5-fold CV 는 별도 상수를 쓴다 (`TODO.md` §1.5):** 위 기본 인자(train 300-case)는 **변경하지 않고**, 433 case 전체 풀로 산출한 `hu_stats_433.json` 을 `load_hu_stats` 로 읽어 `COCAVolumeDataset` 이 `ct_normalization(image, **hu)` 로 명시 전달한다. 실제 산출값: `lower=15.0, upper=1577.0, mean=773.55, std=399.24` (`lower/upper` = 0.5% / 99.5% 분위수, `mean/std` = clip 후). 모든 fold 가 같은 4개 상수 공유 (fold 별 재산정 안 함). 심장 게이트 CT 라 FOV 가 좁아 폐/공기(<-300HU) 비율 0.2% → 0.5% 분위수가 15 로 높고 median≈967. 단일 hold-out 의 mean=355 와 정규화 자체가 다르므로 두 체제의 절대 메트릭 직접 비교 금지.
+- **5-fold CV 는 별도 상수를 쓴다 (`docs/FIVE_FOLD_CV.md` §1.5):** 위 기본 인자(train 300-case)는 **변경하지 않고**, 433 case 전체 풀로 산출한 `hu_stats_433.json` 을 `load_hu_stats` 로 읽어 `COCAVolumeDataset` 이 `ct_normalization(image, **hu)` 로 명시 전달한다. 실제 산출값: `lower=15.0, upper=1577.0, mean=773.55, std=399.24` (`lower/upper` = 0.5% / 99.5% 분위수, `mean/std` = clip 후). 모든 fold 가 같은 4개 상수 공유 (fold 별 재산정 안 함). 심장 게이트 CT 라 FOV 가 좁아 폐/공기(<-300HU) 비율 0.2% → 0.5% 분위수가 15 로 높고 median≈967. 단일 hold-out 의 mean=355 와 정규화 자체가 다르므로 두 체제의 절대 메트릭 직접 비교 금지.
 
 ## 5. Augmentation 정책
 
@@ -102,15 +97,15 @@ DataLoader(db_train, batch_size=16, shuffle=False, num_workers=8,
 
 ## 8. 새 데이터셋 추가 시 체크리스트
 
-- [ ] `(H, W, 3)` 형태로 prev/center/next 가 미리 묶인 NPZ 를 생성.
-- [ ] `list_dir/train.txt`, `test.txt` 갱신. 한 줄당 sample_name (확장자 없음).
+- [ ] `images/case{gidx}.npy` / `labels/case{gidx}.npy` 형태의 케이스 단위 `(D, H, W)` 볼륨을 생성 (§9.1) — prev/center/next 를 미리 묶은 per-slice NPZ 가 아니라, `COCAVolumeDataset` 이 `vol[n:n+3]` 로 인접 슬라이스를 잘라 3채널을 구성한다.
+- [ ] `lists_COCA_5fold/fold0.txt`~`fold4.txt` 형식으로 case 단위 분할 리스트 갱신. 한 줄당 `case{gidx}_slice{n}` (§9.2 포맷).
 - [ ] `ct_normalization` 의 lower/upper/mean/std 를 새 데이터로 재계산해 적용.
 - [ ] `--num_classes`, `DiceLoss` 의 배경 제외 가정, `class_dice_means` 의 인덱싱을 함께 점검.
 - [ ] `tester.py` 의 spacing 상수와 `parse_case_and_slice_id` 의 파싱 규칙 호환성 확인.
 
 ## 9. 5-Fold Cross-Validation 자산
 
-본 절은 `--use_5fold_cv` 모드에서 추가로 필요한 데이터 자산의 포맷을 정리한다. 결정 배경과 생성 파이프라인 전체는 `TODO.md` §1, §2 참고.
+본 절은 `--use_5fold_cv` 모드에서 추가로 필요한 데이터 자산의 포맷을 정리한다. 결정 배경과 생성 파이프라인 전체는 `docs/FIVE_FOLD_CV.md` §1, §2 참고.
 
 모든 자산은 `Dataset001_COCA` 원본에서 `build_5fold_dataset.py` 가 1회 생성한다 (rebuild). case_id = 원본 nnUNet **전역 인덱스** (`COCA_Tr_<gidx>_...`→`case{gidx:04d}`, train 0~313; `COCA_Val_<gidx>_...`, test 314~450). 결손 번호는 제외된 18명. → 433 unique case.
 
@@ -155,3 +150,4 @@ DataLoader(db_train, batch_size=16, shuffle=False, num_workers=8,
 - `db_train` = `fold_idx` 제외 4개 fold sample 합집합 (≈346 case, ~16,600 슬라이스), `db_val` = `fold{fold_idx}.txt` (≈87 case, ~4,150 슬라이스). train:val ≈ 4:1. (fold 별 실제 case/슬라이스 수는 §9.2 표 참고.)
 - `COCAVolumeDataset` 가 case 볼륨을 memmap 으로 lazy 로드(case 별 캐시)해 `vol[n:n+3]`→`(H,W,3)`
   + `vol[n+1]` center label 조립, `ct_normalization(**hu)` 적용. `db_val` 은 augmentation 비활성. DataLoader 의 `shuffle=False + collate_fn=shuffle_within_batch` 패턴 유지 (CLAUDE.md §6).
+- `num_slices` 는 `derive_num_slices(decoder, encoder)` 가 결정한다 — 3 이면 `vol[n:n+3]` 을 prev/center/next `(H,W,3)` 로, 1 이면 center 슬라이스 한 장만 `(H,W,1)` 로 반환한다. label 은 두 경우 모두 center(`vol[n+1]`).

@@ -1,4 +1,5 @@
 import os
+import json
 import sys
 import random
 import logging
@@ -11,8 +12,9 @@ from torch.nn.modules.loss import CrossEntropyLoss
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 from tqdm import tqdm
-from utils import PolyLRScheduler, DiceLoss
-from dataset import (shuffle_within_batch, COCA_dataset, COCAVolumeDataset,
+from utils import build_supervision, PolyLRScheduler, DiceLoss
+from training_protocol import TrainingLossPlateau
+from dataset import (shuffle_within_batch, COCAVolumeDataset,
                               load_hu_stats, RandomAugmentation, Resize, ToTensor)
 
 def _read_fold_list(list_dir, k):
@@ -20,6 +22,10 @@ def _read_fold_list(list_dir, k):
         return [ln.strip() for ln in f if ln.strip()]
 
 def trainer_coca(args, model, snapshot_path):
+    artifacts = [name for name in os.listdir(snapshot_path)
+                 if name.endswith('.pth') or name in ('log.txt', 'training_record.json')]
+    if artifacts:
+        raise FileExistsError('기존 학습 기록이 있습니다. 새 --exp_setting을 사용하세요: ' + snapshot_path)
     logging.basicConfig(filename=snapshot_path + "/log.txt", 
                         level=logging.INFO, 
                         format='[%(asctime)s.%(msecs)03d] %(message)s', 
@@ -33,37 +39,24 @@ def trainer_coca(args, model, snapshot_path):
     train_transform = T.Compose([RandomAugmentation(),
                                  Resize(output_size=[args.img_size, args.img_size]),
                                  ToTensor()])
-    val_transform = T.Compose([Resize(output_size=[args.img_size, args.img_size]),
-                               ToTensor()])
-
-    if getattr(args, 'use_5fold_cv', False):
-        # 433-case 통합 풀의 case 단위 5-fold. train = fold_idx 제외 4개 fold, val = fold_idx.
-        hu = load_hu_stats(args.hu_stats_path)
-        image_dir = os.path.join(args.root_path_5fold, 'images')
-        label_dir = os.path.join(args.root_path_5fold, 'labels')
-        train_samples = []
-        for k in range(5):
-            if k == args.fold_idx:
-                continue
-            train_samples += _read_fold_list(args.list_dir_5fold, k)
-        val_samples = _read_fold_list(args.list_dir_5fold, args.fold_idx)
-        db_train = COCAVolumeDataset(image_dir, label_dir, train_samples,
-                                     transform=train_transform, hu_stats=hu)
-        db_val = COCAVolumeDataset(image_dir, label_dir, val_samples,
-                                   transform=val_transform, hu_stats=hu)
-        logging.info(f"5-fold CV: val fold={args.fold_idx}, train folds={[k for k in range(5) if k != args.fold_idx]}")
-    else:
-        db_train = COCA_dataset(base_dir=args.root_path,
-                                list_dir=args.list_dir,
-                                split="train",
-                                transform=train_transform)
-        db_val = COCA_dataset(base_dir=args.root_path,
-                              list_dir=args.list_dir,
-                              split="val",
-                              transform=val_transform)
-
+    # 테스트 fold의 목록과 이미지는 학습 중 읽지 않는다.
+    hu = load_hu_stats(args.hu_stats_path)
+    image_dir = os.path.join(args.root_path_5fold, 'images')
+    label_dir = os.path.join(args.root_path_5fold, 'labels')
+    train_samples = []
+    for k in range(5):
+        if k == args.fold_idx:
+            continue
+        train_samples += _read_fold_list(args.list_dir_5fold, k)
+    db_train = COCAVolumeDataset(image_dir, label_dir, train_samples,
+                                 transform=train_transform, hu_stats=hu,
+                                 num_slices=args.num_slices)
+    if len(db_train) == 0:
+        raise ValueError('학습 데이터가 비어 있습니다.')
+    logging.info(f"5-fold CV: test fold={args.fold_idx}, train folds={[k for k in range(5) if k != args.fold_idx]}, num_slices={args.num_slices}")
+    logging.info('Training mode: %s; configured epochs: %d',
+                 'training_loss_pilot' if args.training_loss_pilot else 'fixed_epochs', args.max_epochs)
     print("The length of train set is: {}".format(len(db_train)))
-    print("The length of validation set is: {}".format(len(db_val)))
 
     def worker_init_fn(worker_id):
         random.seed(args.seed + worker_id)
@@ -71,14 +64,15 @@ def trainer_coca(args, model, snapshot_path):
     trainloader = DataLoader(db_train, batch_size=batch_size, shuffle=False, 
                              num_workers=8, pin_memory=True, worker_init_fn=worker_init_fn, 
                              collate_fn=shuffle_within_batch)
-    valloader = DataLoader(db_val, batch_size=batch_size, shuffle=False, 
-                           num_workers=4, pin_memory=True, worker_init_fn=worker_init_fn)
 
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model)
     
     dice_loss_class = DiceLoss()
     ce_loss_class = CrossEntropyLoss()
+
+    # deep supervision 조합. 모델 출력 개수를 알아야 하므로 첫 batch 에서 확정한다.
+    ss = None
     # optimizer = optim.SGD(model.parameters(), lr=base_lr, weight_decay=3e-5, momentum=0.99, nesterov=True)
     optimizer = optim.AdamW(model.parameters(), lr=base_lr, weight_decay=1e-4)
     
@@ -90,12 +84,7 @@ def trainer_coca(args, model, snapshot_path):
 
     iter_num = 0
     max_epoch = args.max_epochs
-    best_val_loss = float('inf')
-    best_model_path = None
-
-    patience = getattr(args, 'early_stopping_patience', 0)
-    min_delta = getattr(args, 'early_stopping_min_delta', 0.0)
-    patience_counter = 0
+    plateau = TrainingLossPlateau(args.training_loss_patience, args.training_loss_min_delta) if args.training_loss_pilot else None
 
     scaler = GradScaler()
     
@@ -110,12 +99,25 @@ def trainer_coca(args, model, snapshot_path):
             image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
 
             with autocast():
-                outputs = model(image_batch)
-                
-                dice_loss = dice_loss_class(outputs, label_batch, softmax=True)
-                ce_loss = ce_loss_class(outputs, label_batch)
-                loss = (0.5 * dice_loss) + (0.5 * ce_loss)
-            
+                P = model(image_batch)
+                if not isinstance(P, (list, tuple)):
+                    P = [P]
+
+                if ss is None:
+                    ss = build_supervision(args.supervision, len(P))
+                    logging.info(f"Supervision strategy: {args.supervision} (n_outs={len(P)}) -> {ss}")
+
+                sum_dice_loss = 0.0
+                sum_ce_loss = 0.0
+                loss = 0.0
+                for s in ss:
+                    iout = sum(P[idx] for idx in s)
+                    dice_loss = dice_loss_class(iout, label_batch, softmax=True)
+                    ce_loss = ce_loss_class(iout, label_batch)
+                    sum_dice_loss += dice_loss
+                    sum_ce_loss += ce_loss
+                    loss += (args.dice_weight * dice_loss) + (args.ce_weight * ce_loss)
+
             optimizer.zero_grad()
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -126,22 +128,22 @@ def trainer_coca(args, model, snapshot_path):
             
             iter_num += 1
             
-            train_dice_loss += dice_loss.item()
-            train_ce_loss += ce_loss.item()
+            train_dice_loss += sum_dice_loss.item()
+            train_ce_loss += sum_ce_loss.item()
             train_loss += loss.item()
 
-            logging.info('epoch %d, iteration %d - dice_loss: %f, ce_loss: %f, loss_total: %f' % (epoch_num, iter_num, dice_loss.item(), ce_loss.item(), loss.item()))
+            logging.info('epoch %d, iteration %d - dice_loss: %f, ce_loss: %f, loss_total: %f' % (epoch_num, iter_num, sum_dice_loss.item(), sum_ce_loss.item(), loss.item()))
             
             if iter_num % 50 == 0:
-                image = image_batch[1, 0:1, :, :]
+                image = image_batch[0, 0:1, :, :]
                 image = (image - image.min()) / (image.max() - image.min())
                 
                 writer.add_image('train/Image', image, iter_num)
                 
-                pred = torch.argmax(torch.softmax(outputs, dim=1), dim=1, keepdim=True)
-                writer.add_image('train/Prediction', pred[1, ...] * 50, iter_num)
+                pred = torch.argmax(torch.softmax(P[-1], dim=1), dim=1, keepdim=True)
+                writer.add_image('train/Prediction', pred[0, ...] * 50, iter_num)
 
-                labels = label_batch[1, ...].unsqueeze(0) * 50
+                labels = label_batch[0, ...].unsqueeze(0) * 50
                 writer.add_image('train/GroundTruth', labels, iter_num)
 
         train_dice_loss /= len(trainloader)
@@ -154,66 +156,32 @@ def trainer_coca(args, model, snapshot_path):
         writer.add_scalar('train/train_loss', train_loss, epoch_num)
         logging.info('Train - epoch %d - train_dice_loss: %f, train_ce_loss: %f, train_loss: %f' % (epoch_num, train_dice_loss, train_ce_loss, train_loss))
 
-        val_dice_loss = 0.0
-        val_ce_loss = 0.0
-        val_loss = 0.0
-        
-        model.eval()
-        with torch.no_grad():
-            for i_batch, sampled_batch in enumerate(valloader, start=1):
-                image_batch, label_batch = sampled_batch['image'], sampled_batch['label']
-                image_batch, label_batch = image_batch.cuda(), label_batch.cuda()
-                
-                with autocast():
-                    outputs = model(image_batch)
-                    
-                    dice_loss = dice_loss_class(outputs, label_batch, softmax=True)
-                    ce_loss = ce_loss_class(outputs, label_batch)
-                    loss = (0.5 * dice_loss) + (0.5 * ce_loss)
-                
-                val_dice_loss += dice_loss.item()
-                val_ce_loss += ce_loss.item()
-                val_loss += loss.item()
-
-        val_dice_loss /= len(valloader)
-        val_ce_loss /= len(valloader)
-        val_loss /= len(valloader)
-
-        writer.add_scalar('val/dice_loss', val_dice_loss, epoch_num)
-        writer.add_scalar('val/ce_loss', val_ce_loss, epoch_num)
-        writer.add_scalar('val/val_loss', val_loss, epoch_num)
-        logging.info('Validation - epoch %d - val_dice_loss: %f, val_ce_loss: %f, val_loss: %f' % (epoch_num, val_dice_loss, val_ce_loss, val_loss))
-
-        if val_loss < best_val_loss - min_delta:
-            best_val_loss = val_loss
-            patience_counter = 0
-
-            if best_model_path and os.path.exists(best_model_path):
-                os.remove(best_model_path)
-
-            best_model_path = os.path.join(snapshot_path, f'epoch_{epoch_num}_{best_val_loss:.4f}_best_model.pth')
-            if isinstance(model, nn.DataParallel):
-                torch.save(model.module.state_dict(), best_model_path)
-            else:
-                torch.save(model.state_dict(), best_model_path)
-
-            logging.info(f"Best model saved to {best_model_path} with val_loss: {best_val_loss:.4f}")
-        else:
-            patience_counter += 1
-
-        if epoch_num == max_epoch:
-            save_model_path = os.path.join(snapshot_path, f'epoch_{epoch_num}_{val_loss:.4f}.pth')
-            if isinstance(model, nn.DataParallel):
-                torch.save(model.module.state_dict(), save_model_path)
-            else:
-                torch.save(model.state_dict(), save_model_path)
-                
-            logging.info(f"Final epoch model saved to {save_model_path} with val_loss: {val_loss:.4f}")
-
-        if patience > 0 and patience_counter >= patience:
-            logging.info(f"Early stopping at epoch {epoch_num} "
-                         f"(no val_loss improvement for {patience} epochs, best={best_val_loss:.4f})")
+        if plateau is not None and plateau.observe(epoch_num, train_loss):
+            logging.info('Training-loss plateau at epoch %d; selected epochs: %d', epoch_num, plateau.best_epoch)
             break
 
+    record = {
+        'mode': 'training_loss_pilot' if args.training_loss_pilot else 'fixed_epochs',
+        'fold_idx': args.fold_idx,
+        'training_folds': [k for k in range(5) if k != args.fold_idx],
+        'seed': args.seed,
+        'configured_max_epochs': args.max_epochs,
+        'selected_epochs': plateau.best_epoch if plateau is not None else args.max_epochs,
+        'completed_epochs': epoch_num,
+        'last_train_loss': train_loss,
+    }
+    if plateau is not None:
+        record['best_train_loss'] = plateau.best_loss
+        record['patience'] = args.training_loss_patience
+        record['min_delta'] = args.training_loss_min_delta
+    else:
+        final_model_path = os.path.join(snapshot_path, 'final_model.pth')
+        network = model.module if isinstance(model, nn.DataParallel) else model
+        torch.save(network.state_dict(), final_model_path)
+        logging.info('Final model saved to %s after %d epochs', final_model_path, epoch_num)
+    with open(os.path.join(snapshot_path, 'training_record.json'), 'w') as stream:
+        json.dump(record, stream, indent=2)
+        stream.write('\n')
+    logging.info('Training completed: %d epochs; selected epochs: %d', epoch_num, record['selected_epochs'])
     writer.close()
     return "Training Finished!"

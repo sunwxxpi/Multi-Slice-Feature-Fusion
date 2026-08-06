@@ -1,30 +1,18 @@
-"""
-5-fold CV 결과 집계.
-
-각 fold 의 test_log/.../results.txt 에서 클래스별 3D 메트릭(Dice/mIoU/HD)을 파싱하고,
-model/.../*_best_model.pth 파일명에서 best epoch / best val_loss 를 읽어,
-fold 별 값 + mean±std 를 Markdown 표로 출력한다.
-
-예:
-  python aggregate_5fold_results.py \
-      --exp_template msffm_resnet50_unet_fold{fold}_seed42 \
-      --encoder resnet50_sa --decoder unet
-"""
+"""완료된 최종 학습의 5-fold 평가 결과와 지정 epoch 수를 집계한다."""
 import os
 import re
-import csv
-import glob
 import argparse
 import numpy as np
+from training_protocol import load_final_training_record
 
 VNAMES = ["LCA", "LAD", "LCX", "RCA"]   # class 1..4
-NETCLASS = {"unet": "Unet", "segformer": "Segformer"}
+NETCLASS = {"unet": "Unet", "segformer": "Segformer",
+            "emcad": "EMCADNet", "emcad_sa": "EMCAD_SA_Net"}
 
 NUM = r"(nan|[-+]?\d*\.?\d+)"
 RE_CLASS = re.compile(rf"\[3D\] Class (\d+) - Dice: {NUM}, mIoU: {NUM}, HD: {NUM}")
 RE_MEAN = re.compile(rf"\[3D\] Testing Performance - Mean Dice: {NUM}, Mean mIoU: {NUM}, Mean HD: {NUM}")
-RE_BEST = re.compile(r"epoch_(\d+)_([\d.]+)_best_model\.pth$")
-RE_STOP = re.compile(r"Early stopping at epoch (\d+)")
+RE_CHECKPOINT = re.compile(r"Evaluation checkpoint: (.+)")
 
 
 def f(x):
@@ -35,48 +23,30 @@ def f(x):
 
 
 def parse_results(path):
-    """results.txt 에서 마지막 실행의 클래스별/평균 메트릭을 파싱.
-    반환: dict metric -> [LCA,LAD,LCX,RCA, Mean] (값 없으면 None)."""
+    """마지막 최종 체크포인트 평가의 클래스별·평균 메트릭을 반환한다."""
     if not os.path.exists(path):
         return None
     with open(path, "r") as fp:
         text = fp.read()
+    checkpoints = list(RE_CHECKPOINT.finditer(text))
+    if not checkpoints:
+        return None
+    checkpoint = checkpoints[-1].group(1).strip()
+    text = text[checkpoints[-1].end():]
     cls = {}  # class_idx -> (dice, miou, hd) (마지막 등장값)
     for m in RE_CLASS.finditer(text):
         cls[int(m.group(1))] = (f(m.group(2)), f(m.group(3)), f(m.group(4)))
     means = RE_MEAN.findall(text)
     mean = means[-1] if means else None
-    if not cls:
+    if set(cls) != {1, 2, 3, 4} or mean is None:
         return None
     out = {}
+    out['checkpoint'] = checkpoint
     for mi, key in enumerate(("Dice", "mIoU", "HD")):
         row = [cls.get(c, (float("nan"),) * 3)[mi] for c in (1, 2, 3, 4)]
         row.append(f(mean[mi]) if mean else float("nan"))
         out[key] = row
     return out
-
-
-def parse_best_ckpt(model_dir):
-    """*_best_model.pth 파일명에서 (best_epoch, best_val_loss) 추출."""
-    cks = glob.glob(os.path.join(model_dir, "*_best_model.pth"))
-    if not cks:
-        return (None, None)
-    m = RE_BEST.search(os.path.basename(cks[0]))
-    return (int(m.group(1)), float(m.group(2))) if m else (None, None)
-
-
-def parse_stop_epoch(model_dir):
-    """train log.txt 에서 early stopping / 마지막 epoch 추출 (best-effort)."""
-    log = os.path.join(model_dir, "log.txt")
-    if not os.path.exists(log):
-        return None
-    with open(log, "r") as fp:
-        text = fp.read()
-    s = RE_STOP.findall(text)
-    if s:
-        return int(s[-1])
-    ep = re.findall(r"Train - epoch (\d+)", text)
-    return int(ep[-1]) if ep else None
 
 
 def fmt(x, nd=4):
@@ -110,6 +80,8 @@ def main():
     ap.add_argument("--dataset", default="COCA")
     ap.add_argument("--img_size", type=int, default=512)
     ap.add_argument("--max_epochs", type=int, default=300)
+    ap.add_argument("--epochs_per_fold", type=int, nargs=5,
+                    help="fold 0부터 4까지 각각 최종 학습에 지정한 epoch 수")
     ap.add_argument("--batch_size", type=int, default=16)
     ap.add_argument("--base_lr", type=float, default=0.00001)
     ap.add_argument("--test_log_root", default="./test_log")
@@ -121,31 +93,44 @@ def main():
     args = ap.parse_args()
 
     netcls = NETCLASS[args.decoder]
-    param = f"epo{args.max_epochs}_bs{args.batch_size}_lr{args.base_lr}"
     sub = os.path.join(f"{netcls}_{args.encoder}", f"{args.dataset}_{args.img_size}")
 
     per_fold = {}
     ckpts = {}
     for k in range(5):
+        epochs = args.epochs_per_fold[k] if args.epochs_per_fold else args.max_epochs
+        param = f"epo{epochs}_bs{args.batch_size}_lr{args.base_lr}"
         exp = args.exp_template.format(fold=k)
         test_dir = os.path.join(args.test_log_root, sub, exp, param)
         model_dir = os.path.join(args.model_root, sub, exp, param)
         per_fold[k] = parse_results(os.path.join(test_dir, "results.txt"))
-        be, bv = parse_best_ckpt(model_dir)
-        ckpts[k] = (be, bv, parse_stop_epoch(model_dir))
+        try:
+            ckpts[k] = load_final_training_record(model_dir, k, epochs)
+        except (OSError, ValueError) as error:
+            ckpts[k] = None
+            per_fold[k] = None
+            print(f"[warn] fold{k}: 최종 학습 기록 확인 실패: {error}")
+        if per_fold[k] is not None:
+            recorded = per_fold[k]['checkpoint']
+            expected = os.path.join(model_dir, 'final_model.pth')
+            if recorded is None or os.path.realpath(recorded) != os.path.realpath(expected):
+                per_fold[k] = None
+                print(f"[warn] fold{k}: 평가에 사용한 최종 체크포인트가 일치하지 않습니다.")
         if per_fold[k] is None:
-            print(f"[warn] fold{k}: results 없음 -> {test_dir}/results.txt")
+            print(f"[warn] fold{k}: 유효한 최종 평가 결과 없음 -> {test_dir}/results.txt")
 
     title = args.exp_template.replace("_fold{fold}", "").replace("{fold}", "")
     parts = [f"# 5-Fold Results — {title}", ""]
     parts.append("## Run Summary")
     parts.append("")
-    parts.append("| Fold | Best Epoch | Best Val Loss | Stop Epoch |")
+    parts.append("| Fold | Selected Epochs | Completed Epochs | Checkpoint |")
     parts.append("|---|---|---|---|")
     for k in range(5):
-        be, bv, se = ckpts[k]
-        parts.append(f"| {k} | {be if be is not None else '—'} | "
-                     f"{fmt(bv) if bv is not None else '—'} | {se if se is not None else '—'} |")
+        record = ckpts[k]
+        if record is None:
+            parts.append(f"| {k} | — | — | — |")
+        else:
+            parts.append(f"| {k} | {record['selected_epochs']} | {record['completed_epochs']} | final_model.pth |")
     parts.append("")
     parts.append(metric_table("Dice", per_fold, "Dice"))
     parts.append(metric_table("mIoU", per_fold, "mIoU"))

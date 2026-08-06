@@ -1,0 +1,528 @@
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from functools import partial
+from timm.layers import DropPath, to_2tuple, trunc_normal_
+from timm.models import register_model
+
+
+class NonLocalBlock(nn.Module):
+    def __init__(self, in_channels, inter_channels=None, num_heads=8, window_size=8, num_global_tokens=1):
+        super(NonLocalBlock, self).__init__()
+        self.in_channels = in_channels
+        self.inter_channels = inter_channels or in_channels // 2
+        self.num_heads = num_heads
+        self.window_size = window_size
+        self.num_global_tokens = num_global_tokens
+
+        assert self.inter_channels % self.num_heads == 0, "inter_channels should be divisible by num_heads"
+        self.head_dim = self.inter_channels // self.num_heads
+
+        self.query_conv = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
+        self.key_conv = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
+        self.value_conv = nn.Conv2d(self.in_channels, self.inter_channels, kernel_size=1)
+
+        self.W_z = nn.Sequential(
+            nn.Conv2d(self.inter_channels, self.in_channels, kernel_size=1, bias=False),
+            nn.BatchNorm2d(self.in_channels)
+        )
+        # zero-init residual: 초기엔 fusion=identity 로 시작해 pretrained feature 보호,
+        # 학습하며 BatchNorm gamma 가 0 에서 자라 fusion 이 점진적으로 engage.
+        nn.init.constant_(self.W_z[1].weight, 0)
+        nn.init.constant_(self.W_z[1].bias, 0)
+        # 평상시 fused SDPA 사용. True 면 시각화용으로 attention 가중치를 명시 계산.
+        self.return_attention = False
+
+    def forward(self, x_thisBranch, x_otherBranch):
+        # 논문 §2.2: Query=reference(x_thisBranch), Key/Value=상대 슬라이스(x_otherBranch).
+        # 동일 입력이면 self-attention 으로 환원. 전체 (H*W)x(H*W) multi-head attention.
+        B, C, H, W = x_thisBranch.size()
+
+        query = self.query_conv(x_thisBranch)
+        key   = self.key_conv(x_otherBranch)
+        value = self.value_conv(x_otherBranch)
+
+        N = H * W
+        query = query.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)
+        key   = key.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)
+        value = value.view(B, self.num_heads, self.head_dim, N).permute(0, 1, 3, 2)
+
+        if self.return_attention:
+            # 시각화 경로: fused 커널은 가중치를 반환하지 않으므로 명시적으로 계산.
+            # autocast(fp16) 안에서 softmax overflow/underflow 방지 위해 Q/K 를 fp32 로 cast.
+            q_f, k_f = query.float(), key.float()
+            attention_scores = torch.matmul(q_f, k_f.transpose(-2, -1)) / (self.head_dim ** 0.5)
+            attention_weights = F.softmax(attention_scores, dim=-1)
+            # value 와 dtype 맞춰 cast 복원 (downstream conv 가 autocast dtype 기대).
+            out = torch.matmul(attention_weights.to(value.dtype), value)
+        else:
+            # fused scaled dot-product attention: 동일 연산, 메모리/속도 이득 (scale 기본 1/sqrt(head_dim)).
+            # torch 2.0 SDPA 는 마지막 축 연속을 요구하므로 .contiguous() 가 필수다 (누락 시 forward crash).
+            out = F.scaled_dot_product_attention(query.contiguous(), key.contiguous(), value.contiguous())
+            attention_weights = None
+
+        out = out.permute(0, 1, 3, 2).contiguous().view(B, self.inter_channels, H, W)
+        z = self.W_z(out)
+
+        return z, attention_weights
+
+
+class Mlp(nn.Module):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.dwconv = DWConv(hidden_features)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+        elif isinstance(m, nn.Conv2d):
+            fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            fan_out //= m.groups
+            m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+            if m.bias is not None:
+                m.bias.data.zero_()
+
+    def forward(self, x, H, W):
+        x = self.fc1(x)
+        x = self.dwconv(x, H, W)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
+
+
+class Attention(nn.Module):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., sr_ratio=1):
+        super().__init__()
+        assert dim % num_heads == 0, f"dim {dim} should be divided by num_heads {num_heads}."
+
+        self.dim = dim
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = qk_scale or head_dim ** -0.5
+
+        self.q = nn.Linear(dim, dim, bias=qkv_bias)
+        self.kv = nn.Linear(dim, dim * 2, bias=qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = nn.Linear(dim, dim)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+        self.sr_ratio = sr_ratio
+        if sr_ratio > 1:
+            self.sr = nn.Conv2d(dim, dim, kernel_size=sr_ratio, stride=sr_ratio)
+            self.norm = nn.LayerNorm(dim)
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+        elif isinstance(m, nn.Conv2d):
+            fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            fan_out //= m.groups
+            m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+            if m.bias is not None:
+                m.bias.data.zero_()
+
+    def forward(self, x, H, W):
+        B, N, C = x.shape
+        q = self.q(x).reshape(B, N, self.num_heads, C // self.num_heads).permute(0, 2, 1, 3)
+
+        if self.sr_ratio > 1:
+            x_ = x.permute(0, 2, 1).reshape(B, C, H, W)
+            x_ = self.sr(x_).reshape(B, C, -1).permute(0, 2, 1)
+            x_ = self.norm(x_)
+            kv = self.kv(x_).reshape(B, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        else:
+            kv = self.kv(x).reshape(B, -1, 2, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        k, v = kv[0], kv[1]
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+
+        return x
+
+
+class Block(nn.Module):
+
+    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, sr_ratio=1):
+        super().__init__()
+        self.norm1 = norm_layer(dim)
+        self.attn = Attention(
+            dim,
+            num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale,
+            attn_drop=attn_drop, proj_drop=drop, sr_ratio=sr_ratio)
+        # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+        elif isinstance(m, nn.Conv2d):
+            fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            fan_out //= m.groups
+            m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+            if m.bias is not None:
+                m.bias.data.zero_()
+
+    def forward(self, x, H, W):
+        x = x + self.drop_path(self.attn(self.norm1(x), H, W))
+        x = x + self.drop_path(self.mlp(self.norm2(x), H, W))
+
+        return x
+
+
+class OverlapPatchEmbed(nn.Module):
+    """ Image to Patch Embedding
+    """
+
+    def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, embed_dim=768):
+        super().__init__()
+        img_size = to_2tuple(img_size)
+        patch_size = to_2tuple(patch_size)
+
+        self.img_size = img_size
+        self.patch_size = patch_size
+        self.H, self.W = img_size[0] // patch_size[0], img_size[1] // patch_size[1]
+        self.num_patches = self.H * self.W
+        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride,
+                              padding=(patch_size[0] // 2, patch_size[1] // 2))
+        self.norm = nn.LayerNorm(embed_dim)
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+        elif isinstance(m, nn.Conv2d):
+            fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            fan_out //= m.groups
+            m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+            if m.bias is not None:
+                m.bias.data.zero_()
+
+    def forward(self, x):
+        x = self.proj(x)
+        _, _, H, W = x.shape
+        x = x.flatten(2).transpose(1, 2)
+        x = self.norm(x)
+
+        return x, H, W
+
+
+class PyramidVisionTransformerImpr(nn.Module):
+    def __init__(self, img_size=224, patch_size=16, in_chans=3, num_classes=1000, embed_dims=[64, 128, 256, 512],
+                 num_heads=[1, 2, 4, 8], mlp_ratios=[4, 4, 4, 4], qkv_bias=False, qk_scale=None, drop_rate=0.,
+                 attn_drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm,
+                 depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1], use_msffm=False):
+        super().__init__()
+        self.num_classes = num_classes
+        self.depths = depths
+
+        # patch_embed
+        self.patch_embed1 = OverlapPatchEmbed(img_size=img_size, patch_size=7, stride=4, in_chans=in_chans,
+                                              embed_dim=embed_dims[0])
+        self.patch_embed2 = OverlapPatchEmbed(img_size=img_size // 4, patch_size=3, stride=2, in_chans=embed_dims[0],
+                                              embed_dim=embed_dims[1])
+        self.patch_embed3 = OverlapPatchEmbed(img_size=img_size // 8, patch_size=3, stride=2, in_chans=embed_dims[1],
+                                              embed_dim=embed_dims[2])
+        self.patch_embed4 = OverlapPatchEmbed(img_size=img_size // 16, patch_size=3, stride=2, in_chans=embed_dims[2],
+                                              embed_dim=embed_dims[3])
+
+        # transformer encoder
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
+        cur = 0
+        self.block1 = nn.ModuleList([Block(
+            dim=embed_dims[0], num_heads=num_heads[0], mlp_ratio=mlp_ratios[0], qkv_bias=qkv_bias, qk_scale=qk_scale,
+            drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
+            sr_ratio=sr_ratios[0])
+            for i in range(depths[0])])
+        self.norm1 = norm_layer(embed_dims[0])
+
+        cur += depths[0]
+        self.block2 = nn.ModuleList([Block(
+            dim=embed_dims[1], num_heads=num_heads[1], mlp_ratio=mlp_ratios[1], qkv_bias=qkv_bias, qk_scale=qk_scale,
+            drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
+            sr_ratio=sr_ratios[1])
+            for i in range(depths[1])])
+        self.norm2 = norm_layer(embed_dims[1])
+
+        cur += depths[1]
+        self.block3 = nn.ModuleList([Block(
+            dim=embed_dims[2], num_heads=num_heads[2], mlp_ratio=mlp_ratios[2], qkv_bias=qkv_bias, qk_scale=qk_scale,
+            drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
+            sr_ratio=sr_ratios[2])
+            for i in range(depths[2])])
+        self.norm3 = norm_layer(embed_dims[2])
+
+        cur += depths[2]
+        self.block4 = nn.ModuleList([Block(
+            dim=embed_dims[3], num_heads=num_heads[3], mlp_ratio=mlp_ratios[3], qkv_bias=qkv_bias, qk_scale=qk_scale,
+            drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[cur + i], norm_layer=norm_layer,
+            sr_ratio=sr_ratios[3])
+            for i in range(depths[3])])
+        self.norm4 = norm_layer(embed_dims[3])
+
+        # classification head
+        # self.head = nn.Linear(embed_dims[3], num_classes) if num_classes > 0 else nn.Identity()
+
+        self.apply(self._init_weights)
+
+        # MSFFM: stage 3(320ch) / stage 4(512ch) 에 cross/self attention 삽입.
+        # 채널 상수는 pvt_v2_b1~b5 기준이며 b0(160/256) 는 지원하지 않는다.
+        # _init_weights 적용 뒤에 만들어야 한다 — 원본이 그 순서라 NonLocalBlock 은 conv 기본 init 을 유지한다.
+        self.use_msffm = use_msffm
+        if use_msffm:
+            # NonLocalBlock 채널이 320/512 하드코딩이라 백본을 여기서 막는다. 통과시키면 b0(160/256) 는
+            # 생성은 되고 forward 에서야 죽는다.
+            assert embed_dims[2:] == [320, 512], f'MSFFM 은 stage3/4 = 320/512 백본만 지원: {embed_dims}'
+            self.num_heads_msffm = 8
+            self.cross_attention_prev_3 = NonLocalBlock(in_channels=320, inter_channels=160, num_heads=self.num_heads_msffm,
+                                                            window_size=16, num_global_tokens=1)
+            self.cross_attention_self_3 = NonLocalBlock(in_channels=320, inter_channels=160, num_heads=self.num_heads_msffm,
+                                                            window_size=16, num_global_tokens=1)
+            self.cross_attention_next_3 = NonLocalBlock(in_channels=320, inter_channels=160, num_heads=self.num_heads_msffm,
+                                                            window_size=16, num_global_tokens=1)
+            self.compress_3 = nn.Conv2d(960, 320, kernel_size=1, bias=False)
+
+            self.cross_attention_prev_4 = NonLocalBlock(in_channels=512, inter_channels=256, num_heads=self.num_heads_msffm,
+                                                            window_size=16, num_global_tokens=1)
+            self.cross_attention_self_4 = NonLocalBlock(in_channels=512, inter_channels=256, num_heads=self.num_heads_msffm,
+                                                            window_size=16, num_global_tokens=1)
+            self.cross_attention_next_4 = NonLocalBlock(in_channels=512, inter_channels=256, num_heads=self.num_heads_msffm,
+                                                            window_size=16, num_global_tokens=1)
+            self.compress_4 = nn.Conv2d(1536, 512, kernel_size=1, bias=False)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+        elif isinstance(m, nn.Conv2d):
+            fan_out = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+            fan_out //= m.groups
+            m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
+            if m.bias is not None:
+                m.bias.data.zero_()
+
+    def init_weights(self, pretrained=None):
+        if isinstance(pretrained, str):
+            logger = 1
+            #load_checkpoint(self, pretrained, map_location='cpu', strict=False, logger=logger)
+
+    def reset_drop_path(self, drop_path_rate):
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(self.depths))]
+        cur = 0
+        for i in range(self.depths[0]):
+            self.block1[i].drop_path.drop_prob = dpr[cur + i]
+
+        cur += self.depths[0]
+        for i in range(self.depths[1]):
+            self.block2[i].drop_path.drop_prob = dpr[cur + i]
+
+        cur += self.depths[1]
+        for i in range(self.depths[2]):
+            self.block3[i].drop_path.drop_prob = dpr[cur + i]
+
+        cur += self.depths[2]
+        for i in range(self.depths[3]):
+            self.block4[i].drop_path.drop_prob = dpr[cur + i]
+
+    def freeze_patch_emb(self):
+        self.patch_embed1.requires_grad = False
+
+    @torch.jit.ignore
+    def no_weight_decay(self):
+        return {'pos_embed1', 'pos_embed2', 'pos_embed3', 'pos_embed4', 'cls_token'}  # has pos_embed may be better
+
+    def get_classifier(self):
+        return self.head
+
+    def reset_classifier(self, num_classes, global_pool=''):
+        self.num_classes = num_classes
+        self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
+    # def _get_pos_embed(self, pos_embed, patch_embed, H, W):
+    #     if H * W == self.patch_embed1.num_patches:
+    #         return pos_embed
+    #     else:
+    #         return F.interpolate(
+    #             pos_embed.reshape(1, patch_embed.H, patch_embed.W, -1).permute(0, 3, 1, 2),
+    #             size=(H, W), mode="bilinear").reshape(1, -1, H * W).permute(0, 2, 1)
+
+    def _fuse(self, x_main, x_prev, x_next, prev_attn, self_attn, next_attn, compress):
+        # 논문 Table 4: stage3/stage4 동시 적용이 최적. residual 로 더해 pretrained feature 보존.
+        xt_1, _ = prev_attn(x_main, x_prev)
+        xt_2, _ = self_attn(x_main, x_main)
+        xt_3, _ = next_attn(x_main, x_next)
+        return compress(torch.cat([xt_1, xt_2, xt_3], dim=1)) + x_main
+
+    def forward_features(self, x_main, x_prev=None, x_next=None):
+        B = x_main.shape[0]
+        outs = []
+
+        stages = [(self.patch_embed1, self.block1, self.norm1),
+                  (self.patch_embed2, self.block2, self.norm2),
+                  (self.patch_embed3, self.block3, self.norm3),
+                  (self.patch_embed4, self.block4, self.norm4)]
+        fusers = {3: (self.cross_attention_prev_3, self.cross_attention_self_3,
+                      self.cross_attention_next_3, self.compress_3) if self.use_msffm else None,
+                  4: (self.cross_attention_prev_4, self.cross_attention_self_4,
+                      self.cross_attention_next_4, self.compress_4) if self.use_msffm else None}
+
+        for i, (patch_embed, blocks, norm) in enumerate(stages, start=1):
+            # 원본과 동일하게 prev -> main -> next 순으로 인터리브한다. DropPath(drop_path_rate=0.1)
+            # 가 확률적이라 스트림별로 몰아 돌리면 학습 시 RNG 소비 순서가 달라진다.
+            if self.use_msffm:
+                x_prev, H, W = patch_embed(x_prev)
+            x_main, H, W = patch_embed(x_main)
+            if self.use_msffm:
+                x_next, H, W = patch_embed(x_next)
+
+            for blk in blocks:
+                if self.use_msffm:
+                    x_prev = blk(x_prev, H, W)
+                x_main = blk(x_main, H, W)
+                if self.use_msffm:
+                    x_next = blk(x_next, H, W)
+
+            def _restore(x):
+                return norm(x).reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
+
+            if self.use_msffm:
+                x_prev = _restore(x_prev)
+            x_main = _restore(x_main)
+            if self.use_msffm:
+                x_next = _restore(x_next)
+                # stage 1/2 는 fusers 에 키가 없다. `fusers[i]` 로 쓰면 i=1 에서 KeyError.
+                fuser = fusers.get(i)
+                if fuser is not None:
+                    x_main = self._fuse(x_main, x_prev, x_next, *fuser)
+
+            outs.append(x_main)
+
+        return outs
+
+    def forward(self, x_main, x_prev=None, x_next=None):
+        return self.forward_features(x_main, x_prev, x_next)
+
+
+class DWConv(nn.Module):
+    def __init__(self, dim=768):
+        super(DWConv, self).__init__()
+        self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
+
+    def forward(self, x, H, W):
+        B, N, C = x.shape
+        x = x.transpose(1, 2).view(B, C, H, W)
+        x = self.dwconv(x)
+        x = x.flatten(2).transpose(1, 2)
+
+        return x
+
+
+def _conv_filter(state_dict, patch_size=16):
+    """ convert patch embedding weight from manual patchify + linear proj to conv"""
+    out_dict = {}
+    for k, v in state_dict.items():
+        if 'patch_embed.proj.weight' in k:
+            v = v.reshape((v.shape[0], 3, patch_size, patch_size))
+        out_dict[k] = v
+
+    return out_dict
+
+
+@register_model
+class pvt_v2_b0(PyramidVisionTransformerImpr):
+    def __init__(self, use_msffm=False, **kwargs):
+        super(pvt_v2_b0, self).__init__(
+            patch_size=4, embed_dims=[32, 64, 160, 256], num_heads=[1, 2, 5, 8], mlp_ratios=[8, 8, 4, 4],
+            qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 2, 2], sr_ratios=[8, 4, 2, 1],
+            drop_rate=0.0, drop_path_rate=0.1, use_msffm=use_msffm)
+
+
+
+@register_model
+class pvt_v2_b1(PyramidVisionTransformerImpr):
+    def __init__(self, use_msffm=False, **kwargs):
+        super(pvt_v2_b1, self).__init__(
+            patch_size=4, embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[8, 8, 4, 4],
+            qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[2, 2, 2, 2], sr_ratios=[8, 4, 2, 1],
+            drop_rate=0.0, drop_path_rate=0.1, use_msffm=use_msffm)
+
+@register_model
+class pvt_v2_b2(PyramidVisionTransformerImpr):
+    def __init__(self, use_msffm=False, **kwargs):
+        super(pvt_v2_b2, self).__init__(
+            patch_size=4, embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[8, 8, 4, 4],
+            qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 4, 6, 3], sr_ratios=[8, 4, 2, 1],
+            drop_rate=0.0, drop_path_rate=0.1, use_msffm=use_msffm)
+
+@register_model
+class pvt_v2_b3(PyramidVisionTransformerImpr):
+    def __init__(self, use_msffm=False, **kwargs):
+        super(pvt_v2_b3, self).__init__(
+            patch_size=4, embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[8, 8, 4, 4],
+            qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 4, 18, 3], sr_ratios=[8, 4, 2, 1],
+            drop_rate=0.0, drop_path_rate=0.1, use_msffm=use_msffm)
+
+@register_model
+class pvt_v2_b4(PyramidVisionTransformerImpr):
+    def __init__(self, use_msffm=False, **kwargs):
+        super(pvt_v2_b4, self).__init__(
+            patch_size=4, embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[8, 8, 4, 4],
+            qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 8, 27, 3], sr_ratios=[8, 4, 2, 1],
+            drop_rate=0.0, drop_path_rate=0.1, use_msffm=use_msffm)
+
+
+@register_model
+class pvt_v2_b5(PyramidVisionTransformerImpr):
+    def __init__(self, use_msffm=False, **kwargs):
+        super(pvt_v2_b5, self).__init__(
+            patch_size=4, embed_dims=[64, 128, 320, 512], num_heads=[1, 2, 5, 8], mlp_ratios=[4, 4, 4, 4],
+            qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), depths=[3, 6, 40, 3], sr_ratios=[8, 4, 2, 1],
+            drop_rate=0.0, drop_path_rate=0.1, use_msffm=use_msffm)
