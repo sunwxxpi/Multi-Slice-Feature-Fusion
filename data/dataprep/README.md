@@ -10,7 +10,7 @@
 cd data/datasets/COCA && python ../../dataprep/preprocess_train_test_data_3frames.py
 ```
 
-`build_5fold_dataset.py` 만 절대 경로(`SRC`/`OUT`)라 어디서 실행해도 된다.
+`build_5fold_dataset.py` 만 `SRC`/`OUT` 을 스크립트 위치 기준으로 잡아 어디서 실행해도 된다.
 
 대략적인 순서: `xml_to_nii_label.py` → `organize_dataset.py` → `organize_nnUNet_format.py` → `preprocess_train_test_data_{1,3}frame(s).py` → `build_5fold_dataset.py`.
 

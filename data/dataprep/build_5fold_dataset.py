@@ -20,8 +20,11 @@ import nibabel as nib
 from tqdm import tqdm
 from iterstrat.ml_stratifiers import MultilabelStratifiedKFold
 
-SRC = "/home/psw/SAU-Net/data/datasets/COCA/Dataset001_COCA"
-OUT = "/home/psw/SAU-Net/data/datasets/COCA/COCA_3frames_5fold"
+# 스크립트 위치 기준 (data/dataprep → data/datasets/COCA) 이라 실행 위치와 무관하다 —
+# 상대경로를 쓰는 다른 dataprep 스크립트와 달리 cwd 를 맞출 필요가 없다.
+_COCA = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "datasets", "COCA")
+SRC = os.path.join(_COCA, "Dataset001_COCA")
+OUT = os.path.join(_COCA, "COCA_3frames_5fold")
 SPLITS = [
     ("train", "imagesTr", "labelsTr"),
     ("test", "imagesVal", "labelsVal"),
