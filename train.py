@@ -86,12 +86,12 @@ if __name__ == "__main__":
 
     if args.decoder == 'unet':
         net = smp.Unet(encoder_name=args.encoder,
-                       encoder_weights="imagenet",
+                       encoder_weights=None if args.no_pretrain else "imagenet",
                        in_channels=1,
                        classes=args.num_classes).cuda()
     elif args.decoder == 'segformer':
         net = smp.Segformer(encoder_name=args.encoder,
-                            encoder_weights="imagenet",
+                            encoder_weights=None if args.no_pretrain else "imagenet",
                             in_channels=1,
                             classes=args.num_classes).cuda()
     else:
