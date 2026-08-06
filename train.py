@@ -107,7 +107,7 @@ if __name__ == "__main__":
                      pretrain=not args.no_pretrain).cuda()
 
     # from torchinfo import summary
-    # torchinfo_summary = str(summary(net, input_size=(args.batch_size, 3, args.img_size, args.img_size),
+    # torchinfo_summary = str(summary(net, input_size=(args.batch_size, args.num_slices, args.img_size, args.img_size),
     #                                 col_width=20, depth=5,
     #                                 row_settings=["depth", "var_names"],
     #                                 col_names=["input_size", "kernel_size", "output_size", "params_percent"]))

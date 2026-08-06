@@ -7,7 +7,6 @@ SMP_ENCODERS = ['resnet50', 'densenet201', 'efficientnet-b4', 'mit_b2',
                 'resnet50_sa', 'densenet201_sa', 'efficientnet-b4_sa', 'mit_b2_sa']
 
 # 이 목록이 실제 SMP 레지스트리와 어긋나면 argparse 는 통과시키고 모델 생성에서 죽는다.
-# Gate A/B 는 resnet50 / resnet50_sa / pvt_v2_b2 만 실행하므로 나머지 6개는 어떤 게이트도 안 탄다.
 import segmentation_models_pytorch as smp
 for _name in SMP_ENCODERS:
     assert _name in smp.encoders.encoders, f"SMP 레지스트리에 없음: {_name}"

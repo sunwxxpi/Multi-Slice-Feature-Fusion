@@ -113,7 +113,7 @@ train.py: smp.Unet(encoder_name="resnet50_sa", ...)
   1. `net.named_modules()` 로 모델 트리 전체를 순회(`net.encoder`(SMP) 든 `net.backbone`(EMCAD) 든 위치 무관하게 잡는다) → `return_attention` 속성 보유 모듈(모든 `NonLocalBlock`) 자동 검색
   2. 각 모듈의 `return_attention=True` 토글
   3. 모듈명(`cross_attention_prev_3` 등)을 `visualize_attention` 이 기대하는 키 `stage{N}_{prev|self|next}` 로 정규화한 뒤 hook 등록.
-  를 수행. 백본 무관 동작 (resnet50_sa / densenet201_sa / efficientnet-b4_sa / mit_b2_sa / emcad_sa 공통).
+  를 수행. hook 등록 자체(검색·토글·키 정규화)는 백본 무관하게 동작한다 (resnet50_sa / densenet201_sa / efficientnet-b4_sa / mit_b2_sa / emcad_sa 공통) — 하지만 그 뒤 렌더러(`visualize_attention`, `tester.py:235-249`)는 아니다. `resnet_sa`/`mix_transformer_sa`(및 `emcad_sa`)는 MSFFM 을 stage3/4(`cross_attention_*_3`/`_4`)에 붙이지만 `densenet_sa`/`efficientnet_sa`는 stage4/5(`_4`/`_5`)에 붙이므로, 정규화된 키가 후자에서는 `stage4_*`/`stage5_*` 로 나온다. 렌더러는 `stage3_keys`/`stage4_keys` 를 grid_count `[32, 16]` 으로 고정해 찾기 때문에, densenet201_sa/efficientnet-b4_sa 에서는 `stage3_keys` 조회가 항상 비어 그 행이 빈 채로 나오고 `stage4_keys` 조회는 실제로 32×32 해상도인 첫 MSFFM 스테이지를 16 그리드로 잘못 그린다. 이 렌더링 버그는 이 브랜치 이전부터 있던 것으로 여기서 고치지 않는다.
 - `tester.py:inference` 는 `args.save_attention` 가 True 일 때만 `visualize_attention(...)` 호출 + `attn_vis_dir` mkdir 수행. OFF 시 빈 디렉터리 생성도 없음.
 - 저장 위치: `test_save_path/attention_vis/` (= `--is_savenii` 켜진 경우) 또는 fallback `./test_log/attention_vis_fallback/{exp_setting}/` (exp_setting 포함하여 run 간 섞임 방지).
 - 메모리 안전: 매 slice 시작 시 `attn_dict.clear()` — 시각화 OFF + hook ON 같은 잘못된 조합에서도 누수 없음.
