@@ -6,9 +6,11 @@ __pycache__
 
 data/datasets/
 model
+pretrained
 
 test_log
 results
+results_sub
 
 *.png
 *.docx
