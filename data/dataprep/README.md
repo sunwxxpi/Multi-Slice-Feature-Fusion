@@ -19,4 +19,4 @@ xml_to_nii_label.py → organize_dataset.py → organize_nnUNet_format.py
   → preprocess_train_test_data_{1,3}frame(s).py → build_5fold_dataset.py
 ```
 
-`coca_data_error.txt` records why 18 of the 451 studies were excluded (missing tags, zero z-spacing, absent DICOM source, unnamed ROI), leaving the 433 cases used in the paper.
+18 of the 451 studies are excluded for missing tags, zero z-spacing, absent DICOM source, or an unnamed ROI, leaving the 433 cases used in the paper.

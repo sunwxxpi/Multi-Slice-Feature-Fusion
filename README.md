@@ -6,13 +6,13 @@ This repository contains the code for the paper *"Segmentation of Sparse Coronar
 
 ## Introduction
 
-Coronary artery calcification (CAC) on cardiac-gated CT appears as small, sparse lesions scattered across slices. A purely 2D segmentation network sees each slice in isolation and loses the vessel continuity that a radiologist relies on, while a fully 3D network is expensive to train and tends to over-smooth lesions this small.
+Coronary artery calcification (CAC) on cardiac-gated CT appears as small, sparse lesions scattered across slices. A purely 2D segmentation network sees each slice in isolation and loses the vessel continuity that a radiologist relies on, while a fully 3D network is expensive to train.
 
 MSFFM takes the middle path. Three adjacent slices — previous, reference, and next — are encoded by a single weight-shared 2D backbone, and their intermediate feature maps are related to one another through self- and cross-attention. Only the reference slice is segmented; the neighbours act as context. The module is inserted into an existing encoder without changing the decoder or the segmentation head, so it drops into U-Net, SegFormer, and EMCAD alike.
 
 ## Dataset
 
-The dataset is **COCA (Coronary Calcium and Chest CT)** from Stanford AIMI, publicly available [here](https://aimi.stanford.edu/datasets/coca-coronary-calcium-chest-ct). Of the 451 studies, 433 are used; the 18 exclusions and their reasons (missing tags, zero z-spacing, absent DICOM source, unnamed ROI) are recorded in `data/dataprep/coca_data_error.txt`.
+The dataset is **COCA (Coronary Calcium and Chest CT)** from Stanford AIMI, publicly available [here](https://aimi.stanford.edu/datasets/coca-coronary-calcium-chest-ct). Of the 451 studies, 433 are used; 18 are excluded for missing tags, zero z-spacing, absent DICOM source, or an unnamed ROI.
 
 - **Classes (5):** 0 = background, 1 = LCA, 2 = LAD, 3 = LCX, 4 = RCA. In-plane resolution is 512 × 512.
 - **Cross-validation:** the 433 cases are split into five folds at the **case level** using `MultilabelStratifiedKFold` (stratification key = per-case `[LCA, LAD, LCX, RCA]` multi-hot vector, `random_state=42`).
@@ -129,7 +129,7 @@ Passing `--init_from` turns a run into a fine-tuning run. `--exp_setting` keeps 
 CUDA_VISIBLE_DEVICES=0 python train.py --fold_idx 0 \
   --decoder unet --encoder resnet50_sa \
   --init_from   msffm_resnet50_unet_fold0_seed42 \
-  --exp_setting kmu_chest_fold0
+  --exp_setting msffm_resnet50_unet_finetune_fold0_seed42
 ```
 
 - Weights come from the last checkpoint, `final_model.pth`, inside the `--init_from` directory.
@@ -220,10 +220,8 @@ test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_setting}/epo{E}_bs{B}_lr
 |---|---|
 | `main` | **Unified trunk.** All four configurations are selected through `--decoder` and `--encoder`. The baseline for new work. |
 | `single_slice`, `EMCAD`, `EMCAD-SA` | Pre-unification hold-out baselines. Frozen, kept only to reproduce earlier results. |
-| `2.5d-baselines` | Comparison harness for CAT-Net, CSAM, and SegMate (`--net25d`). |
-| `3d-baselines` | Comparison harness for fully 3D models such as SegFormer3D, LHU-Net, WaveFormer, and SuPreM (`--network`). |
 
-All branches share the same 5-fold assets, labels, and fold assignment. `3d-baselines` differs in that it uses case-level 3D crops and sliding-window inference, bypassing the per-slice accumulation and volume assembly used by the 2.5D branches. Hold-out results from the frozen branches were produced with different normalization constants and are not directly comparable to the 5-fold numbers.
+All branches share the same 5-fold assets, labels, and fold assignment. Hold-out results from the frozen branches were produced with different normalization constants and are not directly comparable to the 5-fold numbers.
 
 ## Acknowledgements
 
