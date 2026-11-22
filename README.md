@@ -12,20 +12,20 @@ MSFFM takes the middle path. Three adjacent slices — previous, reference, and 
 
 ## Dataset
 
-The dataset is **COCA (Coronary Calcium and Chest CT)** from Stanford AIMI, publicly available [here](https://aimi.stanford.edu/datasets/coca-coronary-calcium-chest-ct). Of the 451 studies, 433 are used; 18 are excluded for missing tags, zero z-spacing, absent DICOM source, or an unnamed ROI.
+The dataset is **COCA (Coronary Calcium and Chest CT)** from Stanford AIMI, publicly available [here](https://aimi.stanford.edu/datasets/coca-coronary-calcium-chest-ct). Of the 451 studies, 433 are used.
 
 - **Classes (5):** 0 = background, 1 = LCA, 2 = LAD, 3 = LCX, 4 = RCA. In-plane resolution is 512 × 512.
 - **Cross-validation:** the 433 cases are split into five folds at the **case level** using `MultilabelStratifiedKFold` (stratification key = per-case `[LCA, LAD, LCX, RCA]` multi-hot vector, `random_state=42`).
   Each run trains on four folds and evaluates on the remaining test fold.
   All slices from a case stay in the same fold to prevent leakage through adjacent-slice inputs.
-- **Normalization:** HU values are clipped and z-scored with constants computed once over all 433 cases (`hu_stats_433.json`; `lower`/`upper` are the 0.5 / 99.5 percentiles, `mean`/`std` are measured after clipping). Every fold shares the same four constants.
+- **Normalization:** Voxel values are clipped and z-scored with constants computed once over all 433 cases (`hu_stats_433.json`; `lower`/`upper` are the 0.5 / 99.5 percentiles, `mean`/`std` are measured after clipping). Every fold shares the same four constants.
 - **Augmentation:** rot90-plus-flip and rotation are each applied with independent 50% probability. The rotation angle is an integer in `[-20, 19]`, and both image and label are resampled with `order=0` (nearest).
 
 Expected layout on disk (the dataset root is git-ignored):
 
 ```
 data/datasets/COCA/COCA_3frames_5fold/
-├── images/case{0000..0450}.npy      # (D, H, W) float32 HU volume, read as memmap
+├── images/case{0000..0450}.npy      # (D, H, W) float32 volume, read as memmap
 ├── labels/case{0000..0450}.npy      # (D, H, W) uint8
 ├── lists_COCA_5fold/
 │   ├── fold0.txt ~ fold4.txt        # one line per sample: case{gidx}_slice{n}, n = triplet start index
@@ -106,7 +106,7 @@ CUDA_VISIBLE_DEVICES=0 python train.py --use_5fold_cv --fold_idx 0 \
   --exp_setting msffm_resnet50_unet_fold0_seed42
 ```
 
-- Run every command **from the repository root**. Dataset and checkpoint paths default to cwd-relative locations, and the in-tree fork of `segmentation_models_pytorch` only shadows the pip-installed copy when the working directory is the repository root.
+- Run every command **from the repository root**. Dataset and checkpoint paths default to cwd-relative locations.
 - `--exp_setting` must contain the string `fold{fold_idx}`; training aborts otherwise, because the fold identity is not encoded in the path and a mismatch would overwrite another fold's checkpoints.
 - Use a new experiment name for each pilot or final run.
   Training refuses a directory that already contains training logs, a training record, or checkpoint files.
@@ -120,24 +120,6 @@ CUDA_VISIBLE_DEVICES=0 python train.py --use_5fold_cv --fold_idx 0 \
 | MSFFM (SMP backbones) | `msffm_{encoder}_{decoder}_fold{k}_seed42` | `msffm_resnet50_unet_fold0_seed42` |
 | Single-slice baseline | `baseline_{encoder}_{decoder}_fold{k}_seed42` | `baseline_resnet50_unet_fold0_seed42` |
 | EMCAD / EMCAD + MSFFM | `emcad{,_sa}_fold{k}_seed42` | `emcad_sa_fold0_seed42` |
-
-### Fine-tuning
-
-Passing `--init_from` turns a run into a fine-tuning run. `--exp_setting` keeps its usual meaning — the name this run saves under — so the source checkpoint is left untouched.
-
-```bash
-CUDA_VISIBLE_DEVICES=0 python train.py --fold_idx 0 \
-  --decoder unet --encoder resnet50_sa \
-  --init_from   msffm_resnet50_unet_fold0_seed42 \
-  --exp_setting msffm_resnet50_unet_finetune_fold0_seed42
-```
-
-- Weights come from the last checkpoint, `final_model.pth`, inside the `--init_from` directory.
-  The source directory is located using the same `--max_epochs` / `--batch_size` / `--base_lr` as the current run.
-- Only the head keys (`segmentation_head.` for `unet`/`segformer`, `out_head` for the EMCAD family) are stripped before a `strict=False` load, so the encoder and decoder transfer even when the class count changes.
-- If `--init_from` carries a `fold{k}` token it must match `--fold_idx`.
-  Weights from another fold may have already been trained on the current test fold, contaminating its evaluation.
-- Training restarts from scratch, so the LR schedule resets; shorten `--max_epochs` for a brief fine-tune.
 
 ## Evaluation
 
@@ -173,7 +155,7 @@ Heatmaps are drawn as a **multiple of the uniform distribution** (1.0 means no p
 
 ## Directory convention
 
-Training and evaluation compose directories with the same rule; changing it requires editing `train.py` and `test.py` together.
+Training and evaluation compose directories with the same rule.
 
 ```
 model/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_setting}/epo{E}_bs{B}_lr{LR}/
@@ -201,27 +183,17 @@ test_log/{NetClass}_{encoder}/{dataset}_{img_size}/{exp_setting}/epo{E}_bs{B}_lr
 
 ## Implementation notes
 
-- **`in_channels=1` even though the input tensor has three channels.** `smp.Unet(..., in_channels=1)` patches the first convolution to `Conv2d(1→64)`, and the `_sa` encoder slices the three channels apart inside `forward` (`[:,0:1]`, `[:,1:2]`, `[:,2:3]`) to push them through that same convolution three times. Setting `in_channels=3` breaks both the weight sharing and the ImageNet pretrained load.
+- **`in_channels=1` even though the input tensor has three channels.** `smp.Unet(..., in_channels=1)` patches the first convolution to a single input channel, and the `_sa` encoder slices the three channels apart inside `forward` (`[:,0:1]`, `[:,1:2]`, `[:,2:3]`) to push them through that same convolution three times.
 - **One training run per GPU.** `trainer.py` wraps every visible GPU in `nn.DataParallel` when `torch.cuda.device_count() > 1`, so always pin `CUDA_VISIBLE_DEVICES`. With two free GPUs, run two different experiments concurrently. `DistributedDataParallel` is not supported.
-- **The DataLoader uses `shuffle=False` with `collate_fn=shuffle_within_batch`**, shuffling only within a batch. Enabling outer shuffling destroys the adjacent-slice ordering the 2.5D premise depends on.
+- **The DataLoader uses `shuffle=False` with `collate_fn=shuffle_within_batch`**, shuffling only within a batch.
 - `--use_5fold_cv` is a backward-compatibility flag and branches on nothing; the 5-fold path is always taken.
 - `emcad_sa` rejects `pvt_v2_b0` because the MSFFM `NonLocalBlock` channel widths are fixed at 320/512 while b0 uses 160/256.
-- `model/pvt/` only contains `pvt_v2_b2.pth` and `pvt_v2_b3.pth`. **Training** with any other pvt encoder dies with `FileNotFoundError`; evaluation is unaffected since it never reads pretrained weights.
 - `--no_pretrain` has no effect in `test.py`, which always builds the model without pretrained weights and then loads the checkpoint strictly.
 - Do not merge `EMCADNet` and `EMCAD_SA_Net` into one class. Paths are composed from `net.__class__.__name__`, so merging would make the two experiments overwrite each other's checkpoints.
 - `NonLocalBlock` uses fused SDPA (`F.scaled_dot_product_attention`) and must pass q/k/v through `.contiguous()`, since torch 2.0 requires the last dimension to be contiguous. The fused kernel relies on atomics, so MSFFM evaluation metrics vary run to run in the fourth decimal place.
 - `segmentation_models_pytorch/encoders/multi_slice_feature_fusion.py` is a reference implementation registered nowhere; editing it does not affect training or evaluation.
 - `dataset.py` lives at the repository root to avoid a name collision with the HuggingFace `datasets` package. Do not reintroduce a `datasets/` directory.
 - The residual diagnostic prints in `resnet_sa.py` and `multi_slice_feature_fusion.py` are deliberate instrumentation gated behind the module constant `DEBUG_RESIDUAL` (default `False`).
-
-## Branches
-
-| Branch | Contents |
-|---|---|
-| `main` | **Unified trunk.** All four configurations are selected through `--decoder` and `--encoder`. The baseline for new work. |
-| `single_slice`, `EMCAD`, `EMCAD-SA` | Pre-unification hold-out baselines. Frozen, kept only to reproduce earlier results. |
-
-All branches share the same 5-fold assets, labels, and fold assignment. Hold-out results from the frozen branches were produced with different normalization constants and are not directly comparable to the 5-fold numbers.
 
 ## Acknowledgements
 
