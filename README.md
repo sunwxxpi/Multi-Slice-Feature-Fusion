@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains the code for the paper *"Segmentation of Sparse Coronary Artery Calcifications in Computed Tomography via 2.5D Multi-Slice Feature Fusion"*. The project introduces the **Multi-Slice Feature Fusion Module (MSFFM)**, a plug-and-play attention module that restores inter-slice continuity in standard 2D encoder–decoder segmentation networks without resorting to 3D convolution.
+This repository contains the code for the paper [*"Segmentation of Sparse Coronary Artery Calcifications in Computed Tomography via 2.5D Multi-Slice Feature Fusion"*](https://doi.org/10.1371/journal.pone.0363737), published in *PLOS One* 21(11): e0363737 (2026). The project introduces the **Multi-Slice Feature Fusion Module (MSFFM)**, a plug-and-play attention module that restores inter-slice continuity in standard 2D encoder–decoder segmentation networks without resorting to 3D convolution.
 
 ## Introduction
 
@@ -207,7 +207,24 @@ Segmentation of Sparse Coronary Artery Calcifications in Computed Tomography via
 
 ## Citation
 
+If you use this code, please cite the paper:
+
+```bibtex
+@article{pi2026segmentation,
+  title   = {Segmentation of sparse coronary artery calcifications in computed tomography via 2.5D multi-slice feature fusion},
+  author  = {Pi, Sun-Woo and Sim, Jun-Hyeon and Lee, Byoung-Dai},
+  journal = {PLOS One},
+  volume  = {21},
+  number  = {11},
+  pages   = {e0363737},
+  year    = {2026},
+  doi     = {10.1371/journal.pone.0363737}
+}
 ```
-Stanford AIMI, "COCA - Coronary Calcium and Chest CTs",
+
+Dataset:
+
+```
+Stanford AIMI, "COCA - Coronary Calcium and Chest CTs", doi: 10.71718/ge5g-ds80,
 https://aimi.stanford.edu/datasets/coca-coronary-calcium-chest-ct
 ```
